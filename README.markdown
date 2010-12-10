@@ -1,11 +1,7 @@
-# Exploder Demo
+# Conquest
 
-This is a simple client-only demo showing how to create two sprite types.
+This is a remake of the classic Lords of Conquest for C64 implemented in JavaScript.
 
-Click and drag on the screen to see the explosions.
+It started as a small example game for node-camp I worked on over Thanksgiving, but ended up taking longer than expected.
 
-The first type is the circles.  They are created at page load and bounce off the walls forever.
-
-The second type is the sparks. They fly faster and die after either a specified timeout or fly off the screen.
-
-The bounding box is the entire window and is dynamic.
+Now it's here till I finish it.
