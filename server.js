@@ -1,12 +1,11 @@
-var Connect = require('connect');
 
-var PORT = process.env.PORT || 8080;
+var PORT = process.env.PORT || 8086;
 
 // Serve static files and log requests to the server
-Connect.createServer(
-  Connect.logger(),
-  Connect.staticProvider('web')
-).listen(PORT);
+require('http').createServer(require('stack')(
+  require('creationix/log')(),
+  require('creationix/static')('/', 'web', 'index.html')
+)).listen(PORT);
 
 console.log("Exploder server running at http://localhost:%s", PORT);
 

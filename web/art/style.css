@@ -27,7 +27,7 @@ html, body {
   position: absolute;
   width: 20px;
   height: 20px;
-  background-image: url(sprites.png);
+  background-image: url(sprites.svg);
 }
 .land div {
   position:absolute;
