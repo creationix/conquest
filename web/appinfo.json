@@ -1,9 +1,10 @@
 {
-  "id": "org.nodejs.camp.conquest",
-  "version": "1.0.0",
-  "vendor": "Node Camp",
+  "id": "com.creationix.conquest",
+  "version": "0.0.1",
+  "vendor": "Tim Caswell",
   "type": "web",
   "main": "index.html",
   "title": "Conquest",
-  "icon": "icon.png"
+  "icon": "icon.png",
+  "uiRevision": 2
 }
