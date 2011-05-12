@@ -1,4 +1,4 @@
-/*global PalmSystem rectify deepCopy ajax */
+/*global PalmSystem rectify deepCopy load */
 
 function Country(x, y, grid) {
   this.grid = grid;
@@ -148,7 +148,7 @@ window.addEventListener('load', function () {
   var countries;
 
   function loadLevel(url, callback) {
-    ajax(url, function (err, level) {
+    load(url, function (err, level) {
       if (err) { return callback(err); }
       var countries = level.map(function (data) {
         var country = new Country(data[0], data[1], data[2]);

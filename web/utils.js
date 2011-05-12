@@ -108,22 +108,16 @@ function rectify(grid) {
   });
 }
 
-function ajax(url, callback) {
-  var req = new XMLHttpRequest();
-  req.onreadystatechange = function () {
-    if (req.readyState === 4) {
-      if (req.status === 200) {
-        try {
-          var data = JSON.parse(req.responseText);
-          callback(null, data);
-        } catch (err) {
-          callback(err);
-        }
-      } else {
-        callback(new Error(req.statusText));
-      }
-    }
-  };
-  req.open("GET", url, true);
-  req.send("");
+function load(url, callback) {
+  var node = document.createElement('script');
+  node.setAttribute('src', url);
+  node.setAttribute('type', 'application/javascript');
+  node.addEventListener('load', function () {
+    callback(null, window.data);
+    window.data = null;
+    document.head.removeChild(node);
+  });
+  document.head.appendChild(node);
 }
+
+
