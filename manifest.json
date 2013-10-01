@@ -1,6 +1,6 @@
 {
   "name": "Conquest",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "manifest_version": 2,
   "offline_enabled": true,
   "description": "A remake of the classic Lords of Conquest for C64 implemented in JavaScript",
