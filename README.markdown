@@ -6,5 +6,3 @@ It started as a small example game for node-camp I worked on over Thanksgiving, 
 ended up taking longer than expected.
 
 Now it's here till I finish it.
-
-This is a test edit!
