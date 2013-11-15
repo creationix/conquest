@@ -10,7 +10,6 @@ html, body {
   color: #fff;
   overflow: hidden;
 }
-
 #map {
   position: absolute;
   width: 960px;
