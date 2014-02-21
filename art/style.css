@@ -33,7 +33,7 @@ html, body {
   border-radius: 10px;
   background-color: #d3d7cf;
 }
-.land div.bordered { 
+.land div.bordered {
   border: 2px solid #babdb6;
 }
 .city div {

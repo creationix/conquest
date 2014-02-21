@@ -93,7 +93,7 @@ function rectify(grid) {
       h: ey - sy + 1
     };
   }
-  
+
   for (var y = 0, l1 = grid.length; y < l1; y++) {
     for (var x = 0, l2 = grid[y].length; x < l2; x++) {
       if (grid[y][x]) {
@@ -119,5 +119,3 @@ function load(url, callback) {
   });
   document.head.appendChild(node);
 }
-
-

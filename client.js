@@ -84,12 +84,12 @@ Country.prototype.renderLand = function () {
 Country.prototype.renderIcons = function () {
   var icons = document.createElement('div');
   icons.setAttribute('class', 'icons');
-  var self = this; 
+  var self = this;
   var clone = deepCopy(this.grid);
   var n = 0;
   function findSpace() {
     n++;
-    if (n > 1000) { 
+    if (n > 1000) {
       return { x: 0, y: 0 };
     }
     var y = Math.floor(Math.random() * clone.length);
@@ -173,8 +173,8 @@ window.addEventListener('load', function () {
     });
 
   });
-    
-  Array.prototype.choose = function () { 
+
+  Array.prototype.choose = function () {
     return this[Math.floor(Math.random() * this.length)];
   };
 
@@ -216,7 +216,7 @@ window.addEventListener('load', function () {
     }
     change(target.sprite);
   }
-  
+
   // Start the palm system if we're in a webOS app
   if (typeof PalmSystem !== 'undefined') {
     PalmSystem.stageReady();
