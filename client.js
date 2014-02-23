@@ -84,7 +84,6 @@ Country.prototype.renderLand = function () {
 Country.prototype.renderIcons = function () {
   var icons = document.createElement('div');
   icons.setAttribute('class', 'icons');
-  var self = this;
   var clone = deepCopy(this.grid);
   var n = 0;
   function findSpace() {

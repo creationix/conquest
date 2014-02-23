@@ -7,7 +7,7 @@ chrome.app.runtime.onLaunched.addListener(function() {
       width: 960,
       height: 480,
     },
-    //resizable: false
+    resizable: false
   });
 
 });
