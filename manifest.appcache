@@ -1,0 +1,32 @@
+#!js
+"use strict";
+var pathJoin = require('pathjoin');
+
+module.exports = function* (load, url) {
+  var names = [
+    "index.html",
+    "client.js",
+    "utils.js",
+    "art/style.css",
+    "art/blue-city.png",
+    "art/brown-city.png",
+    "art/green-city.png",
+    "art/orange-city.png",
+    "art/purple-city.png",
+    "art/red-city.png",
+    "art/sprites.png",
+    "maps/first.json",
+    "icons/icon-128.png",
+  ];
+  var manifest = "CACHE MANIFEST\n";
+  for (var i = 0, l = names.length; i < l; ++i) {
+    var name = names[i];
+    var meta = yield* load(pathJoin(__dirname, name));
+    manifest += name + "#" + meta.hash + "\n";
+  }
+  return [200,
+    { "Content-Type": "text/cache-manifest" },
+    manifest
+  ];
+
+};
