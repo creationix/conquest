@@ -1,6 +1,6 @@
 #!js
 "use strict";
-var pathJoin = require('pathjoin');
+var pathJoin = require('path').join;
 
 module.exports = function* (load, url) {
   var names = [
