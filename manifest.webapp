@@ -1,0 +1,13 @@
+{
+  "name": "Conquest",
+  "description": "Conquer all the Lands",
+  "launch_path": "/index.html",
+  "icons": {
+    "128": "icons/icon-128.png"
+  },
+  "developer": {
+    "name": "Tim Caswell",
+    "url": "https://creationix.com/"
+  },
+  "default_locale": "en"
+}
