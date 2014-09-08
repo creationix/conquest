@@ -1,0 +1,25 @@
+[submodule "lib/tedit-regenerator"]
+	url = git@github.com:creationix/tedit-regenerator.git
+	ref = refs/heads/master
+	prefix = hzt6u9sw-1sp88gx
+	path = lib/tedit-regenerator
+[submodule "lib/wheaty-cjs-bundler"]
+	url = git@github.com:creationix/wheaty-cjs-bundler.git
+	ref = refs/heads/master
+	prefix = hzt6yaj1-wavlxg
+	path = lib/wheaty-cjs-bundler
+[submodule "lib/domchanger"]
+	url = git@github.com:creationix/domchanger.git
+	ref = refs/heads/master
+	prefix = hzt73o3p-2xh5gw
+	path = lib/domchanger
+[submodule "lib/gen-run"]
+	url = git@github.com:creationix/gen-run.git
+	ref = refs/heads/master
+	prefix = hzt74qqp-1jy7j4t
+	path = lib/gen-run
+[submodule "lib/dombuilder"]
+	url = git@github.com:creationix/dombuilder.git
+	ref = refs/heads/master
+	prefix = hztbaqs7-cm3tgl
+	path = lib/dombuilder

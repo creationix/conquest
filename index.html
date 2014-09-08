@@ -1,17 +1,33 @@
 <!doctype html>
-<html lang="en" manifest="manifest.appcache">
+<html lang="en">
+<!--<html lang="en" manifest="manifest.appcache">-->
   <head>
+    <meta charset="utf-8">
     <title>Conquest</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link rel="apple-touch-icon" sizes="128x128" href="icons/icon-128.png">
     <link rel="icon" type="image/png" sizes="128x128" href="icons/icon-128.png">
-    <link href="art/style.css" rel="stylesheet" type="text/css"/>
-    <script src="utils.js" type="text/javascript"></script>
-    <script src="client.js" type="text/javascript"></script>
+    <link href="art/style.css" rel="stylesheet">
   </head>
   <body>
-    <div id="map"></div>
+    <script charset="utf-8">
+      (function () {
+        // Detect native generator support and load the right version of
+        // the pre-compiled source code.
+        var hasgens;
+        try { hasgens = eval("(function*(){yield true;})().next().value"); }
+        catch (err) { hasgens = false; }
+        var script = document.createElement("script");
+        var url = "conquest.js";
+        if (!hasgens) url += "?regenerate";
+        script.setAttribute('async', 'async');
+        script.setAttribute('charset', 'utf-8');
+        script.setAttribute('src', url);
+        document.body.textContent = "";
+        document.head.appendChild(script);
+      }());
+    </script>
   </body>
 </html>

@@ -11,16 +11,16 @@ html, body {
   overflow: hidden;
 }
 #map {
-  position: absolute;
-  width: 960px;
-  height: 480px;
-  left: 50%;
-  top: 50%;
-  margin: -240px 0 0 -480px;
   background-color: #0b0c1e;
 }
+.country:hover {
+  stroke: #fff;
+}
 .country {
-  position: absolute;
+  fill: #d3d7cf;
+  stroke: #babdb6;
+  stroke-width: 1px;
+  stroke-linejoin: round;
 }
 .icons div {
   position: absolute;
@@ -28,18 +28,11 @@ html, body {
   height: 20px;
   background-image: url(sprites.png);
 }
-.land div {
-  position:absolute;
-  border-radius: 10px;
-  background-color: #d3d7cf;
-}
-.land div.bordered {
-  border: 2px solid #babdb6;
-}
 .city div {
   background-attachment: fixed;
 }
-.land div {
+.country {
+  transition: all 0.5s ease;
   -webkit-transition: all 0.5s ease;
 }
 
