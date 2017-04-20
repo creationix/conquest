@@ -1,0 +1,7 @@
+{
+  "title": "Conquest",
+  "description": "A partially implemented remake of Lord of Conquest",
+  "app": {
+    "name": "conquest"
+  }
+}
