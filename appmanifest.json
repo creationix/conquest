@@ -1,0 +1,15 @@
+{
+  "short_name": "Conquest",
+  "name": "Conquest",
+  "icons": [
+    {
+      "src": "icons/icon-256.png",
+      "type": "image/png",
+      "sizes": "256x256"
+    }
+  ],
+  "start_url": "index.html",
+  "background_color": "#3367D6",
+  "display": "fullscreen",
+  "theme_color": "#3367D6"
+}
