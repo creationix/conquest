@@ -205,6 +205,12 @@ window.addEventListener('load', function () {
   window.addEventListener('click', onClick);
 
   function onClick(evt) {
+    if (document.fullscreenEnabled && document.fullscreenElement !== document.body) {
+      evt.preventDefault();
+      document.body.requestFullscreen();
+      return;
+    }
+
     var target = evt.target;
     while (!target.sprite) {
       console.log(target);
