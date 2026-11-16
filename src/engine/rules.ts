@@ -670,7 +670,7 @@ function resolveAttack(s: GameState, p: number) {
   if (odds <= 0) {
     // The allies tipped the balance: the attack is called off before any
     // fighting, nothing is lost, but the attack is used up.
-    emit(s, { kind: 'pass', player: p, reason: 'The allies tipped the balance, so the attack was called off.' });
+    emit(s, { kind: 'pass', player: p, reason: 'The allies tipped the balance, so the attack was called off.', target });
     s.conquest.attacksLeft--;
     if (s.conquest.attacksLeft <= 0) advanceTurn(s);
     return;
@@ -903,6 +903,8 @@ export function apply(state: GameState, action: Action): GameState {
     }
     case 'cancel': {
       if (s.phase !== 'conquest' || currentPlayer(s) !== p) fail('Not your attack');
+      // Logged quietly (no reason), so computer lords remember what they gave up on.
+      if (s.conquest.plan) emit(s, { kind: 'pass', player: p, reason: '', target: s.conquest.plan.target });
       s.conquest.plan = null;
       break;
     }

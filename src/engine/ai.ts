@@ -81,7 +81,16 @@ export function chooseAction(s: GameState, p: number): Action | null {
       if (plan && currentPlayer(s) !== p) return { type: 'ally', player: p, side: allySide(s, p, plan.target, plan.defender) };
       if (plan) {
         if (plan.allies.some((a) => a.side === null)) return null; // wait for allies
-        return { type: 'attack', player: p };
+        // Re-check now that neighbors have chosen: back off if it went bad.
+        const pv = previewAttack(s, p, plan.target, plan.force);
+        let att = pv.attack;
+        let def = pv.defense;
+        for (const a of plan.allies) {
+          if (a.side === 'attacker') att += a.strength;
+          if (a.side === 'defender') def += a.strength;
+        }
+        const threshold = s.settings.chance === 'high' ? 0.55 : 0.5;
+        return winOdds(s, att, def) >= threshold ? { type: 'attack', player: p } : { type: 'cancel', player: p };
       }
       return tryIt(conquer(s, p)) ?? { type: 'done', player: p };
     }
@@ -220,12 +229,26 @@ function forcesFor(s: GameState, p: number, target: number): (Force | null)[] {
   return out;
 }
 
+/** Lands this lord already attacked or gave up on during this conquest phase. */
+function triedThisPhase(s: GameState, p: number): Set<number> {
+  const tried = new Set<number>();
+  for (let i = s.log.length - 1; i >= 0; i--) {
+    const e = s.log[i].event;
+    if (e.kind === 'phase') break;
+    if (e.kind === 'battle' && e.attacker === p) tried.add(e.target);
+    if (e.kind === 'pass' && e.player === p && e.target !== undefined) tried.add(e.target);
+  }
+  return tried;
+}
+
 function conquer(s: GameState, p: number): Action | null {
   const T = s.territories;
   const candidates: Candidate[] = [];
   const lead = leader(s);
+  // Never ask the same neighbors about the same land twice in one turn.
+  const tried = triedThisPhase(s, p);
   T.forEach((t, target) => {
-    if (t.owner === p) return;
+    if (t.owner === p || tried.has(target)) return;
     for (const force of forcesFor(s, p, target)) {
       const touching = neighbors(s, target).some((n) => T[n].owner === p);
       if (!touching && force?.kind !== 'boat') continue;

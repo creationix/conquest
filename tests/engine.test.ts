@@ -360,3 +360,24 @@ test('computer lords answer offers and propose their own', () => {
   // Only one offer per trading phase.
   assert.equal(chooseAction(next, 1)!.type, 'ready');
 });
+
+test('a computer attacker backs off when allies turn against it, and does not ask twice', () => {
+  // A (computer) attacks B; C (a person) also borders B and could tip the balance.
+  const map = textMap(['AABBCC']);
+  const s = custom(map, [0, 1, 2], 3, { chance: 'low' });
+  s.players[0].ai = true;
+  s.territories[0].horse = true; // attack 2 vs defense 1
+  s.territories[2].weapon = true; // C bears 4 on B
+  const plan = chooseAction(s, 0)!;
+  assert.deepEqual(plan, { type: 'plan', player: 0, target: 1, force: null });
+  let next = apply(s, plan);
+  assert.deepEqual(actors(next), [0, 2], 'the person is asked to take a side');
+  next = apply(next, { type: 'ally', player: 2, side: 'defender' });
+  // 2 vs 5 now: the computer calls it off instead of attacking...
+  const after = chooseAction(next, 0)!;
+  assert.deepEqual(after, { type: 'cancel', player: 0 });
+  next = apply(next, after);
+  // ...and does not plan the same attack again this turn.
+  const again = chooseAction(next, 0)!;
+  assert.ok(!(again.type === 'plan' && again.target === 1), `asked again: ${JSON.stringify(again)}`);
+});

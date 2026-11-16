@@ -118,7 +118,8 @@ export type GameEvent =
       looted?: Stock;
     }
   | { kind: 'eliminated'; player: number }
-  | { kind: 'pass'; player: number; reason: string }
+  /** A turn passed or an attack was called off (`target` set for attacks). */
+  | { kind: 'pass'; player: number; reason: string; target?: number }
   | { kind: 'win'; player: number; reason: string };
 
 export interface LoggedEvent {

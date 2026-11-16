@@ -280,6 +280,9 @@ export class GameScreen {
           break;
         case 'pass':
           if (e.reason && e.reason !== 'no shipment') this.toast(e.reason, false, e.player);
+          else if (!e.reason && e.target !== undefined && !this.session.controls(e.player)) {
+            this.toast(`${this.player(e.player).name} called off the attack on ${this.tname(e.target)}`, false, e.player);
+          }
           break;
         case 'win':
           setTimeout(() => play('victory'), 400);
