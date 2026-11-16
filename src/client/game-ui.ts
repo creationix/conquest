@@ -332,7 +332,7 @@ export class GameScreen {
   // Rendering
 
   private layoutKey = '';
-  private layoutMode: 'column' | 'topbar' | 'short' = 'topbar';
+  private layoutMode: 'column' | 'bar' | 'topbar' | 'short' = 'topbar';
 
   /**
    * Place the HUD and frame the map. Three layouts are tried and the one that
@@ -353,10 +353,19 @@ export class GameScreen {
       if (short) this.layoutMode = 'short';
       else if (narrowPortrait) this.layoutMode = 'topbar';
       else {
+        // Prompts like trading need room: the full column only counts when
+        // the player list leaves enough space under it.
         const column = this.renderer.scaleFor(this.applyLayout('column'));
+        const columnRoom = this.panelRoom;
+        const bar = this.renderer.scaleFor(this.applyLayout('bar'));
         const topbar = this.renderer.scaleFor(this.applyLayout('topbar'));
-        // The column never lets a prompt cover the map, so it wins near-ties.
-        this.layoutMode = column >= topbar * 0.97 ? 'column' : 'topbar';
+        const roomy = columnRoom >= 480;
+        const best = Math.max(roomy ? column : 0, bar, topbar);
+        // Prefer the bottom bar (prompts get the whole column), then the
+        // stacked column, when they leave (nearly) as much map as the best.
+        if (bar >= best * 0.97) this.layoutMode = 'bar';
+        else if (roomy && column >= best * 0.97) this.layoutMode = 'column';
+        else this.layoutMode = 'topbar';
       }
       // The map frame is fixed until the screen or roster changes; later
       // renders only re-place the HUD around it.
@@ -368,18 +377,41 @@ export class GameScreen {
   };
 
   private layoutInsets = { top: 8, right: 8, bottom: 8, left: 8 };
+  /** Height available for prompts in the column layouts. */
+  private panelRoom = 0;
 
   /** Arrange the HUD for one layout and return the map insets it leaves. */
-  private applyLayout(mode: 'column' | 'topbar' | 'short') {
+  private applyLayout(mode: 'column' | 'bar' | 'topbar' | 'short') {
     const { game, panel, roster, brand, toasts } = this.el;
     const w = window.innerWidth;
     const hgt = window.innerHeight;
     const narrowPortrait = w <= 600 && hgt > w;
     const css = getComputedStyle(document.documentElement);
     const safeRight = parseFloat(css.getPropertyValue('--safe-right')) || 0;
-    game.classList.remove('column', 'topbar', 'short');
-    game.classList.add(mode);
+    game.classList.remove('column', 'bar', 'topbar', 'short', 'slim', 'tiny');
+    // The bar layout is the column layout with players moved to the bottom.
+    if (mode === 'bar') game.classList.add('column', 'bar');
+    else game.classList.add(mode);
     toasts.style.left = '';
+    if (mode === 'bar') {
+      const sideW = Math.round(Math.min(280, Math.max(240, w * 0.2)));
+      const safeLeft = parseFloat(css.getPropertyValue('--safe-left')) || 0;
+      game.style.setProperty('--side-w', sideW + 'px');
+      const barWidth = w - 24 - safeLeft - (sideW + 24 + safeRight);
+      // Narrow chips drop the resource counts, then the names (tap for more).
+      const perChip = barWidth / this.state.players.length;
+      if (!this.rosterCompact && perChip < 235) game.classList.add('slim');
+      if (this.rosterCompact || perChip < 125) game.classList.add('slim', 'tiny');
+      const top = brand.getBoundingClientRect().bottom + 8;
+      game.style.setProperty('--panel-top', top + 'px');
+      game.style.setProperty('--panel-max', `${hgt - top - 72}px`);
+      this.panelRoom = hgt - top - 72;
+      const barTop = roster.getBoundingClientRect().top;
+      const insets = { top: 8, right: sideW + 24 + safeRight, bottom: hgt - barTop + 8, left: 8 };
+      toasts.style.left = `${(w - insets.right) / 2}px`;
+      toasts.style.bottom = `${hgt - barTop + 10}px`;
+      return insets;
+    }
     if (mode === 'column') {
       const sideW = Math.round(Math.min(260, Math.max(232, w * 0.2)));
       game.style.setProperty('--side-w', sideW + 'px');
@@ -387,6 +419,7 @@ export class GameScreen {
       const top = roster.getBoundingClientRect().bottom + 8;
       game.style.setProperty('--panel-top', top + 'px');
       game.style.setProperty('--panel-max', `${hgt - top - 72}px`);
+      this.panelRoom = hgt - top - 72;
       const insets = { top: 8, right: sideW + 24 + safeRight, bottom: 8, left: 8 };
       toasts.style.left = `${(w - insets.right) / 2}px`;
       toasts.style.bottom = '18px';
