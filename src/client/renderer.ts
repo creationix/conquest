@@ -17,6 +17,8 @@ export interface Highlight {
   selected?: number[];
   target?: number;
   arrows?: { from: number; to: number; color: string }[];
+  /** Faded boats showing where a new boat could go; tapping one picks it. */
+  ghosts?: { cell: number; fill: string; dark: string; selected: boolean }[];
 }
 
 export interface Insets {
@@ -61,7 +63,8 @@ export class MapRenderer {
   coast: Path2D | null = null;
   highlight: Highlight = {};
   insets: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
-  onTap: (territory: number) => void = () => {};
+  /** Tapped territory (or -1), plus the exact cell that was tapped. */
+  onTap: (territory: number, cell: number) => void = () => {};
 
   private cache = document.createElement('canvas');
   private cacheKey = '';
@@ -412,8 +415,9 @@ export class MapRenderer {
     const vy = (y - this.cam.y) / this.cam.scale;
     const cx = Math.floor(this.rotated ? vy : vx);
     const cy = Math.floor(this.rotated ? this.map.height - vx : vy);
-    if (cx < 0 || cy < 0 || cx >= this.map.width || cy >= this.map.height) return this.onTap(-1);
+    if (cx < 0 || cy < 0 || cx >= this.map.width || cy >= this.map.height) return this.onTap(-1, -1);
     const cell = cy * this.map.width + cx;
+    if (this.highlight.ghosts?.some((g) => g.cell === cell)) return this.onTap(-1, cell);
     let t = this.map.cells[cell];
     if (t < 0) t = this.boatCells.get(cell) ?? -1;
     if (t < 0) {
@@ -431,7 +435,7 @@ export class MapRenderer {
         }
       }
     }
-    this.onTap(t);
+    this.onTap(t, cell);
   }
 
   // -------------------------------------------------------------------------
@@ -492,7 +496,7 @@ export class MapRenderer {
     }
     this.anims = this.anims.filter((a) => active.includes(a));
 
-    const pulsing = !!(this.highlight.selected?.length || this.highlight.target !== undefined || this.highlight.arrows?.length);
+    const pulsing = !!(this.highlight.selected?.length || this.highlight.target !== undefined || this.highlight.arrows?.length || this.highlight.ghosts?.length);
     if (this.anims.length || pulsing) this.requestDraw();
   }
 
@@ -528,6 +532,37 @@ export class MapRenderer {
       ctx.fill(shape.path);
     }
     for (const a of h.arrows ?? []) this.drawArrow(ctx, a.from, a.to, a.color, 1, pulse);
+    for (const g of h.ghosts ?? []) this.drawGhostBoat(ctx, g, pulse);
+  }
+
+  private drawGhostBoat(ctx: CanvasRenderingContext2D, g: NonNullable<Highlight['ghosts']>[number], pulse: number) {
+    const [cx, cy] = cellXY(this.map!, g.cell);
+    const lw = 1 / this.cam.scale;
+    ctx.save();
+    this.upright(ctx, cx + 0.5, cy + 0.5);
+    if (g.selected) {
+      ctx.beginPath();
+      ctx.arc(0, 0, 0.62 + pulse * 0.12, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, 231, 168, ${0.6 + 0.4 * pulse})`;
+      ctx.lineWidth = lw * 3;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = g.selected ? 1 : 0.55;
+    ctx.beginPath();
+    ctx.arc(0, 0, 0.46, 0, Math.PI * 2);
+    ctx.fillStyle = shade(g.fill, 0.55);
+    ctx.fill();
+    ctx.setLineDash(g.selected ? [] : [lw * 4, lw * 3]);
+    ctx.lineWidth = lw * 2;
+    ctx.strokeStyle = g.dark;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const size = 0.62;
+    ctx.translate(-size / 2, -size / 2);
+    ctx.scale(size / 24, size / 24);
+    ctx.fillStyle = g.dark;
+    ctx.fill(iconPath('boat'));
+    ctx.restore();
   }
 
   private center(t: number): { x: number; y: number } {

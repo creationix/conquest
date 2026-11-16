@@ -1,6 +1,6 @@
 import './style.css';
 import type { Lobby } from '../engine/protocol.ts';
-import { actors, createGame } from '../engine/rules.ts';
+import { actors, createGame, info } from '../engine/rules.ts';
 import { chooseAction } from '../engine/ai.ts';
 import { setMood, setupAudio } from './audio.ts';
 import { setupInstall } from './pwa.ts';
@@ -65,7 +65,7 @@ function playLocal(state: ReturnType<typeof createGame>) {
     const session = new LocalSession(state);
     const screen = new GameScreen(root, session, home);
     // Hook for automated browser tests.
-    (window as unknown as { __conquest: unknown }).__conquest = { session, screen, chooseAction, actors };
+    (window as unknown as { __conquest: unknown }).__conquest = { session, screen, chooseAction, actors, info };
     return () => {
       screen.destroy();
       session.close();
@@ -150,7 +150,7 @@ function network() {
         const screen = new GameScreen(root, session, () => {
           client.leave();
         });
-        (window as unknown as { __conquest: unknown }).__conquest = { session, screen, chooseAction, actors };
+        (window as unknown as { __conquest: unknown }).__conquest = { session, screen, chooseAction, actors, info };
         return () => {
           screen.destroy();
           session.close();

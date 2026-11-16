@@ -145,7 +145,7 @@ export class GameScreen {
     mount(root, this.el.game);
     this.rosterCompact = window.innerWidth < 700 || window.innerHeight <= 520;
     this.renderer = new MapRenderer(canvas);
-    this.renderer.onTap = (t) => this.tap(t);
+    this.renderer.onTap = (t, cell) => this.tap(t, cell);
     this.session.onError = (msg) => this.toast(msg, true);
     const state = session.state;
     this.names = territoryNames(hashSeed(state.settings.seed), state.territories.length);
@@ -423,6 +423,7 @@ export class GameScreen {
       const keep = { tradeAs: this.ui.tradeAs, info: this.ui.info };
       this.ui = { ...freshUi(key), ...keep };
     }
+    this.boatGhosts = [];
     // Music turns martial during conquest.
     setMood(s.phase === 'conquest' ? 'war' : 'peace');
     this.renderBrand();
@@ -663,6 +664,32 @@ export class GameScreen {
 
   // Development ---------------------------------------------------------------
 
+  private boatGhosts: { sea: number; cell: number }[] = [];
+
+  /** Name bodies of water by where they lie on screen: "North water", "East water". */
+  private waterNames(t: number, seas: number[]): string[] {
+    const s = this.state;
+    const map = s.map;
+    const anchor = info(s).territories[t].anchor;
+    const ax = anchor % map.width;
+    const ay = Math.floor(anchor / map.width);
+    const dirs = ['East', 'North-east', 'North', 'North-west', 'West', 'South-west', 'South', 'South-east'];
+    const names = seas.map((sea) => {
+      const berths = info(s).territories[t].coast[sea];
+      let dx = 0;
+      let dy = 0;
+      for (const c of berths) {
+        dx += (c % map.width) - ax;
+        dy += Math.floor(c / map.width) - ay;
+      }
+      // Name directions as seen on screen, even when the map is turned.
+      if (this.renderer.rotated) [dx, dy] = [-dy, dx];
+      const sector = Math.round(Math.atan2(-dy, dx) / (Math.PI / 4));
+      return dirs[(sector + 8) % 8];
+    });
+    return names.map((n, i) => (names.indexOf(n) !== names.lastIndexOf(n) ? `${n} water ${names.slice(0, i + 1).filter((x) => x === n).length}` : `${n} water`));
+  }
+
   private renderDevelop(panel: HTMLElement, seat: number): Highlight {
     const s = this.state;
     const p = this.player(seat);
@@ -714,15 +741,26 @@ export class GameScreen {
             )
           : null;
       let seaRow: HTMLElement | null = null;
+      this.boatGhosts = [];
       if (item === 'boat' && ui.sel !== null) {
-        const seas = info(s).territories[ui.sel].seas.filter((x) => freeBerths(s, ui.sel!, x) > 0);
+        const t = ui.sel;
+        const seas = info(s).territories[t].seas.filter((x) => freeBerths(s, t, x) > 0);
         if (ui.sea === null || !seas.includes(ui.sea)) ui.sea = seas[0] ?? null;
+        // Where the new boat would float on each body of water.
+        const names = this.waterNames(t, seas);
+        this.boatGhosts = seas.map((sea) => ({ sea, cell: info(s).territories[t].coast[sea][s.territories[t].boats.filter((b) => b === sea).length] }));
+        const c = this.color(seat);
+        hl.ghosts = this.boatGhosts.map((g) => ({ cell: g.cell, fill: c.fill, dark: c.dark, selected: g.sea === ui.sea }));
         if (seas.length > 1) {
           seaRow = h(
-            'div.row',
-            { style: { marginTop: '10px' } },
-            h('span.muted', 'Launch on'),
-            h('div.seg', seas.map((x, i) => h('button', { 'aria-pressed': String(ui.sea === x), onclick: () => ((ui.sea = x), this.render()) }, `Water ${i + 1}`))),
+            'div',
+            h(
+              'div.row',
+              { style: { marginTop: '10px' } },
+              h('span.muted', 'Launch on'),
+              h('div.seg', seas.map((x, i) => h('button', { 'aria-pressed': String(ui.sea === x), onclick: () => ((ui.sea = x), this.render()) }, names[i]))),
+            ),
+            h('p', 'The glowing boat on the map shows where it will float. Tap another faded boat to switch.'),
           );
         }
       }
@@ -1315,10 +1353,18 @@ export class GameScreen {
     this.render();
   }
 
-  private tap(t: number) {
+  private tap(t: number, cell = -1) {
     const s = this.state;
     const act = this.acting();
     const ui = this.ui;
+    // Tapping a ghost boat picks which water a new boat is launched on.
+    const ghost = this.boatGhosts.find((g) => g.cell === cell);
+    if (ghost) {
+      ui.sea = ghost.sea;
+      play('tap');
+      this.render();
+      return;
+    }
     if (t < 0) {
       this.setInfo(null);
       return;

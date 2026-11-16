@@ -267,3 +267,8 @@ dialog::backdrop { background: #04131dbb; }
   .panel .choice.one-row { flex-wrap: nowrap; }
   .panel .choice.one-row button { flex: 1 1 0; min-width: 0; padding: 7px 6px; }
 }
+/* In the narrow column, choices are compact one-line rows: icon, name, cost. */
+.game.column .panel .choice { flex-direction: column; gap: 6px; }
+.game.column .panel .choice button { flex-direction: row; justify-content: flex-start; gap: 8px; min-height: 40px; padding: 6px 10px; text-align: left; }
+.game.column .panel .choice button small { margin-left: auto; text-align: right; }
+.game.column .panel .choice button .ico { width: 20px; height: 20px; }
