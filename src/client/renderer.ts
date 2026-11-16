@@ -7,6 +7,7 @@
 
 import { analyze, cellXY, type MapData, type MapInfo } from '../engine/map.ts';
 import { COLORS, type GameState, type LoggedEvent, type Site } from '../engine/types.ts';
+import { isDoubled } from '../engine/rules.ts';
 import { landPath, territoryShape, type Shape } from './geometry.ts';
 import { GOOD_COLORS, iconPath, type IconName } from './icons.ts';
 
@@ -824,7 +825,11 @@ export class MapRenderer {
       if (cell === undefined) return;
       const [x, y] = cellXY(this.map!, cell);
       if (item.token) this.paintToken(ctx, x + 0.5, y + 0.5, item.kind, colors, item.kind === 'city' ? 0.5 : 0.43, false);
-      else this.paintSite(ctx, x + 0.5, y + 0.5, t.site!, colors);
+      else if (isDoubled(s, id)) {
+        // A city doubles this site: show two, stacked like a pile.
+        this.paintSite(ctx, x + 0.3, y + 0.62, t.site!, colors, 0.66);
+        this.paintSite(ctx, x + 0.7, y + 0.38, t.site!, colors, 0.66);
+      } else this.paintSite(ctx, x + 0.5, y + 0.5, t.site!, colors);
     });
   }
 
@@ -853,8 +858,7 @@ export class MapRenderer {
     return chosen;
   }
 
-  private paintSite(ctx: CanvasRenderingContext2D, x: number, y: number, site: Site, colors: { fill: string; dark: string }) {
-    const size = 0.78;
+  private paintSite(ctx: CanvasRenderingContext2D, x: number, y: number, site: Site, colors: { fill: string; dark: string }, size = 0.78) {
     ctx.save();
     // Icons stay upright when the map is shown turned for portrait screens.
     ctx.translate(x, y);

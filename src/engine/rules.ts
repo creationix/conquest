@@ -163,6 +163,16 @@ export function actors(s: GameState): number[] {
 }
 
 /**
+ * Does a city double this territory's production? A city doubles gold, iron,
+ * coal and timber in its own land and in its owner's bordering lands.
+ */
+export function isDoubled(s: GameState, t: number): boolean {
+  const ts = s.territories[t];
+  if (!ts || ts.owner < 0 || !ts.site || ts.site === 'horses') return false;
+  return ts.city || neighbors(s, t).some((n) => s.territories[n].owner === ts.owner && s.territories[n].city);
+}
+
+/**
  * A lord whose stockpile was captured places a new one at the start of their
  * next turn. It is free: it does not use up a move or an attack.
  */
@@ -434,8 +444,7 @@ function produce(s: GameState) {
     if (t.owner < 0 || !t.site || t.site === 'horses') return;
     const owner = s.players[t.owner];
     if (owner.stockpile < 0) return;
-    const doubled = t.city || map.territories[id].neighbors.some((n) => terr[n].owner === t.owner && terr[n].city);
-    const amount = doubled ? 2 : 1;
+    const amount = isDoubled(s, id) ? 2 : 1;
     owner.stock[t.site] += amount;
     emit(s, { kind: 'produce', player: t.owner, territory: id, good: t.site, amount });
   });

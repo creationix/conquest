@@ -17,6 +17,7 @@ import {
   freeBerths,
   info,
   neighbors,
+  isDoubled,
   needsStockpile,
   previewAttack,
   recipes,
@@ -474,7 +475,7 @@ export class GameScreen {
     const ts = s.territories[t];
     const c = this.color(ts.owner);
     const facts: (HTMLElement | null)[] = [];
-    if (ts.site) facts.push(h('span', siteIcon(ts.site), GOOD_LABELS[ts.site]));
+    if (ts.site) facts.push(h('span', siteIcon(ts.site), GOOD_LABELS[ts.site] + (isDoubled(s, t) ? ' ×2 (city)' : '')));
     if (ts.city) facts.push(h('span', icon('city'), 'City'));
     if (ts.weapon) facts.push(h('span', icon('weapon'), 'Weapon'));
     if (ts.horse) facts.push(h('span', icon('horse'), 'Horse'));
@@ -613,7 +614,7 @@ export class GameScreen {
   private territoryLine(t: number) {
     const s = this.state;
     const ts = s.territories[t];
-    const bits = [ts.site ? GOOD_LABELS[ts.site] : 'No resources', ts.city ? 'City' : '', ts.weapon ? 'Weapon' : '', ts.horse ? 'Horse' : '', `Defense ${defense(s, t)}`].filter(Boolean);
+    const bits = [ts.site ? GOOD_LABELS[ts.site] + (isDoubled(s, t) ? ' ×2' : '') : 'No resources', ts.city ? 'City' : '', ts.weapon ? 'Weapon' : '', ts.horse ? 'Horse' : '', `Defense ${defense(s, t)}`].filter(Boolean);
     return h('p', h('b', { style: { color: 'var(--text)' } }, this.tname(t)), ' · ', bits.join(' · '));
   }
 
@@ -1129,7 +1130,17 @@ export class GameScreen {
 
   private vsView(att: number, def: number, defender: number, failure: string | null = null, attackLabel = 'Attack') {
     const odds = failure ? 0 : this.odds(att, def);
-    const label = failure ?? (odds >= 1 ? 'Victory is certain' : odds <= 0 ? 'Attack will fail!' : `${Math.round(odds * 100)}% chance to win`);
+    const holder = defender < 0 ? 'The locals hold' : `${this.player(defender).name} holds`;
+    // Third parties see the standing of the battle, not attacker advice.
+    const label =
+      failure ??
+      (attackLabel !== 'Attack'
+        ? `As it stands: ${odds >= 1 ? `${attackLabel} wins` : odds <= 0 ? holder : `${Math.round(odds * 100)}% for ${attackLabel}`}`
+        : odds >= 1
+          ? 'Victory is certain'
+          : odds <= 0
+            ? 'Attack will fail!'
+            : `${Math.round(odds * 100)}% chance to win`);
     const cls = odds >= 0.75 ? 'good' : odds <= 0.35 ? 'bad' : 'meh';
     return h(
       'div',
@@ -1213,7 +1224,7 @@ export class GameScreen {
     const items: (HTMLElement | string)[] = [];
     const chip = (ico: HTMLElement | SVGElement, text: string) => h('span', ico, text);
     const siteNames: Record<string, string> = { gold: 'Gold mine', iron: 'Iron mine', coal: 'Coal mine', timber: 'Timber', horses: 'Pasture' };
-    if (ts.site) items.push(chip(siteIcon(ts.site), siteNames[ts.site]));
+    if (ts.site) items.push(chip(siteIcon(ts.site), siteNames[ts.site] + (isDoubled(s, t) ? ' ×2' : '')));
     if (ts.city) items.push(chip(icon('city'), 'City'));
     if (ts.weapon) items.push(chip(icon('weapon'), 'Weapon'));
     if (ts.horse) items.push(chip(icon('horse'), 'Horse'));
