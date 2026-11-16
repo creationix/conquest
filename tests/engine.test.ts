@@ -330,3 +330,33 @@ test('dealt lands are fair and grow as connected realms', () => {
   }
   assert.ok(lonely / lands < 0.08, `few stray lands (${lonely}/${lands})`);
 });
+
+test('computer lords answer offers and propose their own', () => {
+  const s = createGame(settings({ selection: 'deal', level: 2 }), [
+    { name: 'Human', color: 0, ai: false },
+    { name: 'Bot', color: 1, ai: true },
+    { name: 'Bot2', color: 2, ai: true },
+  ]);
+  s.phase = 'trade';
+  s.placing = [];
+  s.trade = { offers: [], ready: [], nextId: 1 };
+  s.log.push({ n: s.eventCount++, year: s.year, event: { kind: 'phase', phase: 'trade' } });
+  s.players[0].stock = { gold: 0, iron: 4, coal: 0, timber: 0 };
+  s.players[1].stock = { gold: 0, iron: 0, coal: 5, timber: 1 };
+  s.players[2].stock = { gold: 1, iron: 1, coal: 1, timber: 1 };
+  // A generous offer is accepted; a stingy one is declined (and logged).
+  let next = apply(s, { type: 'offer', player: 0, to: 1, give: { ...emptyStock(), iron: 2 }, get: { ...emptyStock(), coal: 1 } });
+  const answer = chooseAction(next, 1)!;
+  assert.deepEqual(answer, { type: 'respond', player: 1, offer: next.trade.offers[0].id, accept: true });
+  const stingy = apply(s, { type: 'offer', player: 0, to: 1, give: { ...emptyStock(), iron: 1 }, get: { ...emptyStock(), coal: 4 } });
+  const no = chooseAction(stingy, 1)!;
+  assert.equal(no.type === 'respond' && no.accept, false);
+  const declined = apply(stingy, no);
+  assert.equal(declined.log[declined.log.length - 1].event.kind, 'declined');
+  // Bot lacks iron and has plenty of coal: it proposes 2 coal for 1 iron to the human.
+  const proposal = chooseAction(s, 1)!;
+  assert.deepEqual(proposal, { type: 'offer', player: 1, to: 0, give: { ...emptyStock(), coal: 2 }, get: { ...emptyStock(), iron: 1 } });
+  next = apply(s, proposal);
+  // Only one offer per trading phase.
+  assert.equal(chooseAction(next, 1)!.type, 'ready');
+});

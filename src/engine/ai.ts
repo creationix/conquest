@@ -70,6 +70,8 @@ export function chooseAction(s: GameState, p: number): Action | null {
     case 'trade': {
       const offer = s.trade.offers.find((o) => o.to === p);
       if (offer) return { type: 'respond', player: p, offer: offer.id, accept: judgeTrade(s, p, offer.give, offer.get) };
+      const proposal = proposeTrade(s, p);
+      if (proposal) return proposal;
       return { type: 'ready', player: p, ready: true };
     }
     case 'shipment':
@@ -274,6 +276,39 @@ function allySide(s: GameState, p: number, target: number, defender: number): Si
 
 function stockValue(st: Stock, need: Stock): number {
   return GOODS.reduce((n, g) => n + st[g] * (g === 'gold' ? 1.4 : 1) * (need[g] > 0 ? 1.3 : 1), 0);
+}
+
+/**
+ * At most once per trading phase, offer a trade that helps toward a city:
+ * two of something we have plenty of for one of something we lack, to the
+ * lord who has the most of it to spare.
+ */
+function proposeTrade(s: GameState, p: number): Action | null {
+  if (s.settings.level < 2) return null;
+  // One offer per trading phase: look back to the start of this phase.
+  for (let i = s.log.length - 1; i >= 0; i--) {
+    const e = s.log[i].event;
+    if (e.kind === 'phase') break;
+    if (e.kind === 'offer' && e.from === p) return null;
+  }
+  const me = s.players[p].stock;
+  const lacking = GOODS.filter((g) => me[g] === 0);
+  const spare = GOODS.filter((g) => me[g] >= (g === 'gold' ? 5 : 3)).sort((a, b) => me[b] - me[a]);
+  if (!lacking.length || !spare.length) return null;
+  for (const want of lacking) {
+    const partners = s.players
+      .filter((q) => q.alive && q.id !== p && q.stock[want] >= 2)
+      .sort((a, b) => b.stock[want] - a.stock[want]);
+    const partner = partners[0];
+    const give = spare.find((g) => g !== want);
+    if (!partner || !give) continue;
+    const g: Stock = { gold: 0, iron: 0, coal: 0, timber: 0 };
+    const w: Stock = { gold: 0, iron: 0, coal: 0, timber: 0 };
+    g[give] = 2;
+    w[want] = 1;
+    return { type: 'offer', player: p, to: partner.id, give: g, get: w };
+  }
+  return null;
 }
 
 function judgeTrade(s: GameState, p: number, give: Stock, get: Stock): boolean {

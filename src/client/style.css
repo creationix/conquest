@@ -224,13 +224,30 @@ dialog::backdrop { background: #04131dbb; }
   .vs .num { font-size: 20px; }
   .roster { max-height: calc(100vh - 24px); overflow-y: auto; }
 }
-/* Side layout: roster and prompts share a column on the right, beside the map. */
-.game.side .roster, .game.side .roster.compact { width: var(--side-w); }
-.game.side .panel { left: auto; transform: none; right: calc(12px + var(--safe-right)); width: var(--side-w); bottom: auto; }
-.game.side .tools { right: auto; left: calc(70px + var(--safe-left)); flex-direction: row; }
-.game.side.short .tools { left: calc(12px + var(--safe-left)); bottom: calc(66px + var(--safe-bottom)); flex-direction: column; }
-.game.side .vs .num { font-size: 24px; }
-.game.side .panel .choice button { min-width: 0; flex: 1 1 auto; }
+/* ---- Layouts: GameScreen.layout() picks whichever gives the biggest map. ---- */
+/* Column: title, players, prompt and buttons stacked on the right; the map gets the full height. */
+.game.column .brand { left: auto; right: calc(12px + var(--safe-right)); width: var(--side-w); }
+.game.column .roster, .game.column .roster.compact { top: var(--roster-top); width: var(--side-w); }
+.game.column .prow .goods { grid-column: 1 / 4; gap: 8px; }
+.game.column .menu-btn { left: auto; right: calc(12px + var(--safe-right) + var(--side-w) - 52px); }
+.game.column .tools { flex-direction: row; }
+.game.column .tools button, .game.column .menu-btn button { min-width: 38px; }
+.game.column .panel, .game.short .panel { left: auto; transform: none; right: calc(12px + var(--safe-right)); width: var(--side-w); bottom: auto; top: var(--panel-top); max-height: var(--panel-max); }
+.game.column .vs .num, .game.short .vs .num { font-size: 24px; }
+.game.column .panel .choice button, .game.short .panel .choice button { min-width: 0; flex: 1 1 auto; }
+.game.column .panel { padding: 12px; }
+.game.column .trade-grid { gap: 6px; }
+.game.column .trade-grid .row { font-size: 0; gap: 0; }
+.game.column .stepper button { min-width: 26px; min-height: 30px; }
+.game.column .stepper output { min-width: 16px; }
+/* Short (landscape phones): players and prompt on the right, map buttons on the left. */
+.game.short .roster, .game.short .roster.compact { width: var(--side-w); }
+.game.short .tools { right: auto; left: calc(12px + var(--safe-left)); bottom: calc(66px + var(--safe-bottom)); flex-direction: column; }
+/* Top bar: players as chips across the top, prompt along the bottom. */
+.game.topbar .roster, .game.topbar .roster.compact { left: var(--roster-left); right: calc(12px + var(--safe-right)); width: auto; max-width: none;
+  display: flex; flex-wrap: wrap; justify-content: flex-end; align-content: flex-start; gap: 4px; padding: 5px; }
+.game.topbar .prow { grid-template-columns: 26px auto auto; }
+.game.topbar .prow .goods { grid-column: 1 / 4; }
 /* Narrow portrait (phones): buttons in a row along the bottom, panel above them. */
 @media (max-width: 600px) and (orientation: portrait) {
   .tools { flex-direction: row; }
@@ -238,4 +255,15 @@ dialog::backdrop { background: #04131dbb; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
+}
+/* Narrow top bars: players shrink to a color swatch and their city count. */
+.game.topbar .roster.compact { gap: 2px; padding: 4px; }
+.game.topbar .roster.compact .prow { grid-template-columns: 26px auto; padding: 4px 6px; gap: 4px; }
+.game.topbar .roster.compact .pname { display: none; }
+/* Keep a panel's main buttons in view when its content scrolls. */
+.panel > .actions:last-child { position: sticky; bottom: -14px; margin-bottom: -14px; padding: 10px 0 14px; background: linear-gradient(#0e283300, #0e2833 12px); }
+.game.column .panel > .actions:last-child { bottom: -12px; margin-bottom: -12px; padding-bottom: 12px; }
+@media (max-width: 600px) {
+  .panel .choice.one-row { flex-wrap: nowrap; }
+  .panel .choice.one-row button { flex: 1 1 0; min-width: 0; padding: 7px 6px; }
 }

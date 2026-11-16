@@ -237,6 +237,18 @@ export class GameScreen {
           play('trade');
           this.toast(`${this.player(e.from).name} and ${this.player(e.to).name} made a trade`, false, e.from);
           break;
+        case 'offer':
+          // Let people know when someone elsewhere (or a computer) offers them a deal.
+          if (this.session.controls(e.to) && !this.session.controls(e.from)) {
+            play('coin');
+            this.toast(`${this.player(e.from).name} offers ${this.player(e.to).name} a trade`, false, e.from);
+          }
+          break;
+        case 'declined':
+          if (this.session.controls(e.from) || this.session.controls(e.to)) {
+            this.toast(`${this.player(e.to).name} turned down ${this.player(e.from).name}'s offer`, false, e.to);
+          }
+          break;
         case 'ship':
           if (e.move.kind === 'stockpile') this.toast(`${this.player(e.player).name} moved their stockpile`, false, e.player);
           else this.toast(`${this.player(e.player).name} moved a ${e.move.kind} to ${this.tname(e.move.to)}`, false, e.player);
@@ -274,7 +286,7 @@ export class GameScreen {
     const el = h('div.toast', player >= 0 ? h('span.dot', { style: { background: this.color(player).fill } }) : null, text);
     if (error) el.style.background = '#ffd9d9';
     this.el.toasts.appendChild(el);
-    while (this.el.toasts.children.length > (window.innerHeight <= 520 ? 2 : 3)) this.el.toasts.removeChild(this.el.toasts.firstChild!);
+    while (this.el.toasts.children.length > (window.innerHeight <= 520 || window.innerWidth <= 600 ? 2 : 3)) this.el.toasts.removeChild(this.el.toasts.firstChild!);
     setTimeout(() => el.classList.add('out'), 3400);
     setTimeout(() => el.remove(), 3900);
   }
@@ -319,58 +331,89 @@ export class GameScreen {
   // -------------------------------------------------------------------------
   // Rendering
 
+  private layoutKey = '';
+  private layoutMode: 'column' | 'topbar' | 'short' = 'topbar';
+
   /**
-   * Place the HUD and frame the map. The frame depends only on the screen and
-   * the roster, never on the current prompt, so the map stays put while
-   * prompts come and go. Where there is room beside the map (tablets,
-   * landscape phones) prompts sit in a column on the right and never cover
-   * it; on portrait phones they sit along the bottom.
+   * Place the HUD and frame the map. Three layouts are tried and the one that
+   * leaves the biggest map wins: a right-hand column (wide screens), a top bar
+   * of player chips with the prompt below (tall screens) and a compact side
+   * layout for landscape phones. The choice and the map frame depend only on
+   * the screen and the roster, never on the current prompt, so the map stays
+   * put while prompts come and go.
    */
   private layout = () => {
-    const game = this.el.game;
-    const panel = this.el.panel;
-    const roster = this.el.roster;
     const w = window.innerWidth;
     const hgt = window.innerHeight;
     const short = hgt <= 520;
     const narrowPortrait = w <= 600 && hgt > w;
-    const css = getComputedStyle(document.documentElement);
-    const safeTop = parseFloat(css.getPropertyValue('--safe-top')) || 0;
-    const safeRight = parseFloat(css.getPropertyValue('--safe-right')) || 0;
-    const brandBottom = safeTop + (w <= 700 || short ? 76 : 92);
-    const sideW = Math.round(short ? Math.min(360, w * 0.42) : Math.min(300, Math.max(240, w * 0.3)));
-    const side = short
-      ? { top: 8, right: sideW + 20 + safeRight, bottom: 8, left: 64 }
-      : { top: brandBottom + 6, right: sideW + 20 + safeRight, bottom: 62, left: 8 };
-    const rosterBottom = safeTop + 12 + roster.getBoundingClientRect().height;
-    const bottomH = (narrowPortrait ? 68 : 12) + Math.min(150, hgt * 0.2);
-    const bottomOptions = [
-      { top: Math.max(brandBottom, rosterBottom) + 6, right: 8, bottom: bottomH, left: 8 },
-      { top: brandBottom + 6, right: Math.min(270, w * 0.46) + 20, bottom: bottomH, left: 8 },
-    ];
-    const bestBottom = Math.max(...bottomOptions.map((o) => this.renderer.scaleFor(o)));
-    const useSide = !narrowPortrait && (short || this.renderer.scaleFor(side) >= bestBottom * 0.95);
-    game.classList.toggle('side', useSide);
-    game.classList.toggle('short', short);
-    game.style.setProperty('--side-w', sideW + 'px');
-    if (useSide) {
-      const top = roster.getBoundingClientRect().bottom + 8;
-      panel.style.top = top + 'px';
-      panel.style.maxHeight = `${hgt - top - 12}px`;
-      this.el.toasts.style.left = `${(side.left + w - side.right) / 2}px`;
-      this.el.toasts.style.bottom = `${side.bottom + 8}px`;
-      this.renderer.setInsets(side);
+    const key = [w, hgt, this.state.players.length, this.rosterCompact].join(':');
+    if (key !== this.layoutKey) {
+      this.layoutKey = key;
+      if (short) this.layoutMode = 'short';
+      else if (narrowPortrait) this.layoutMode = 'topbar';
+      else {
+        const column = this.renderer.scaleFor(this.applyLayout('column'));
+        const topbar = this.renderer.scaleFor(this.applyLayout('topbar'));
+        // The column never lets a prompt cover the map, so it wins near-ties.
+        this.layoutMode = column >= topbar * 0.97 ? 'column' : 'topbar';
+      }
+      // The map frame is fixed until the screen or roster changes; later
+      // renders only re-place the HUD around it.
+      this.layoutInsets = this.applyLayout(this.layoutMode);
     } else {
-      panel.style.top = '';
-      panel.style.maxHeight = '';
-      const rect = panel.getBoundingClientRect();
-      const shown = !panel.hidden && rect.height > 0;
-      // Toasts float just above the panel so they never hide the map's middle.
-      this.el.toasts.style.left = '';
-      this.el.toasts.style.bottom = `${(shown ? hgt - rect.top : 70) + 10}px`;
-      this.renderer.setInsets(bottomOptions);
+      this.applyLayout(this.layoutMode);
     }
+    this.renderer.setInsets(this.layoutInsets);
   };
+
+  private layoutInsets = { top: 8, right: 8, bottom: 8, left: 8 };
+
+  /** Arrange the HUD for one layout and return the map insets it leaves. */
+  private applyLayout(mode: 'column' | 'topbar' | 'short') {
+    const { game, panel, roster, brand, toasts } = this.el;
+    const w = window.innerWidth;
+    const hgt = window.innerHeight;
+    const narrowPortrait = w <= 600 && hgt > w;
+    const css = getComputedStyle(document.documentElement);
+    const safeRight = parseFloat(css.getPropertyValue('--safe-right')) || 0;
+    game.classList.remove('column', 'topbar', 'short');
+    game.classList.add(mode);
+    toasts.style.left = '';
+    if (mode === 'column') {
+      const sideW = Math.round(Math.min(260, Math.max(232, w * 0.2)));
+      game.style.setProperty('--side-w', sideW + 'px');
+      game.style.setProperty('--roster-top', brand.getBoundingClientRect().bottom + 8 + 'px');
+      const top = roster.getBoundingClientRect().bottom + 8;
+      game.style.setProperty('--panel-top', top + 'px');
+      game.style.setProperty('--panel-max', `${hgt - top - 72}px`);
+      const insets = { top: 8, right: sideW + 24 + safeRight, bottom: 8, left: 8 };
+      toasts.style.left = `${(w - insets.right) / 2}px`;
+      toasts.style.bottom = '18px';
+      return insets;
+    }
+    if (mode === 'short') {
+      const sideW = Math.round(Math.min(360, w * 0.42));
+      game.style.setProperty('--side-w', sideW + 'px');
+      const top = roster.getBoundingClientRect().bottom + 8;
+      game.style.setProperty('--panel-top', top + 'px');
+      game.style.setProperty('--panel-max', `${hgt - top - 12}px`);
+      const insets = { top: 8, right: sideW + 20 + safeRight, bottom: 8, left: 64 };
+      toasts.style.left = `${(insets.left + w - insets.right) / 2}px`;
+      toasts.style.bottom = '14px';
+      return insets;
+    }
+    // Top bar.
+    const b = brand.getBoundingClientRect();
+    game.style.setProperty('--roster-left', b.right + 8 + 'px');
+    const r = roster.getBoundingClientRect();
+    const bottom = (narrowPortrait ? 68 : 12) + Math.min(150, hgt * 0.2);
+    const rect = panel.getBoundingClientRect();
+    const shown = !panel.hidden && rect.height > 0;
+    // Toasts float just above the panel so they never hide the map's middle.
+    toasts.style.bottom = `${(shown ? hgt - rect.top : 70) + 10}px`;
+    return { top: Math.max(b.bottom, r.bottom) + 6, right: 8, bottom, left: 8 };
+  }
 
   render() {
     const s = this.state;
@@ -699,7 +742,7 @@ export class GameScreen {
     mount(
       panel,
       this.who(seat, `${p.name}, build`, h('p', 'Your stockpile: ', stockView(p.stock))),
-      h('div.choice', choices),
+      h('div.choice.one-row', choices),
       can.length
         ? null
         : h(
@@ -811,7 +854,18 @@ export class GameScreen {
           );
     mount(
       panel,
-      this.who(seat, ready ? `${me.name} is done trading` : `${me.name}: trading`, h('p', 'Make deals out loud, then record them here. Your stockpile: ', stockView(me.stock))),
+      this.who(
+        seat,
+        ready ? `${me.name} is done trading` : `${me.name}: trading`,
+        h(
+          'p',
+          partner !== null && this.player(partner).ai
+            ? `${this.player(partner).name} is a computer lord: offer a deal and it accepts if the trade helps it. `
+            : 'Make deals out loud, then record them here. ',
+          'Your stockpile: ',
+          stockView(me.stock),
+        ),
+      ),
       asRow,
       incoming.map((o) => offerLine(o, 'in')),
       outgoing.map((o) => offerLine(o, 'out')),
@@ -962,7 +1016,7 @@ export class GameScreen {
     mount(
       panel,
       this.who(seat, `${p.name}: shipment`, hint),
-      h('div.choice', choices),
+      h('div.choice.one-row', choices),
       toggles.length ? h('div.row', { style: { marginTop: '10px' } }, toggles) : null,
       h(
         'div.actions',
@@ -1484,8 +1538,9 @@ function stockView(stock: Stock, compact = false) {
   return h('span.goods', { style: { display: 'inline-flex', gap: '8px', verticalAlign: 'middle' } }, parts.length ? parts : 'nothing');
 }
 
+/** Short cost labels: "4 gold", "iron + coal", "1 of each". */
 function costText(cost: Stock) {
-  return GOODS.filter((g) => cost[g] > 0)
-    .map((g) => `${cost[g]} ${g}`)
-    .join(' + ');
+  const used = GOODS.filter((g) => cost[g] > 0);
+  if (used.length === GOODS.length && used.every((g) => cost[g] === 1)) return '1 of each';
+  return used.map((g) => (cost[g] === 1 && used.length > 1 ? g : `${cost[g]} ${g}`)).join(' + ');
 }

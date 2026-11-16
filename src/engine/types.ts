@@ -102,6 +102,8 @@ export type GameEvent =
   | { kind: 'horse'; player: number; territory: number }
   | { kind: 'build'; player: number; item: Item; territory: number; sea?: number }
   | { kind: 'trade'; from: number; to: number; give: Stock; get: Stock }
+  | { kind: 'offer'; from: number; to: number; give: Stock; get: Stock }
+  | { kind: 'declined'; from: number; to: number }
   | { kind: 'ship'; player: number; move: Move }
   | {
       kind: 'battle';

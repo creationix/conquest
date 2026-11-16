@@ -837,6 +837,7 @@ export function apply(state: GameState, action: Action): GameState {
       if (GOODS.every((g) => action.give[g] === 0 && action.get[g] === 0)) fail('Empty trade');
       s.trade.offers.push({ id: s.trade.nextId++, from: p, to: action.to, give: { ...action.give }, get: { ...action.get } });
       s.trade.ready = s.trade.ready.filter((x) => x !== p && x !== action.to);
+      emit(s, { kind: 'offer', from: p, to: action.to, give: { ...action.give }, get: { ...action.get } });
       break;
     }
     case 'respond': {
@@ -854,6 +855,8 @@ export function apply(state: GameState, action: Action): GameState {
           player.stock[g] += offer.give[g] - offer.get[g];
         }
         emit(s, { kind: 'trade', from: offer.from, to: p, give: offer.give, get: offer.get });
+      } else {
+        emit(s, { kind: 'declined', from: offer.from, to: p });
       }
       break;
     }
