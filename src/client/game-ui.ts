@@ -34,7 +34,7 @@ import {
   type Phase,
   type Stock,
 } from '../engine/types.ts';
-import { play, setSound, soundOn } from './audio.ts';
+import { cycle, level, levelLabel, play, setMood } from './audio.ts';
 import { closeDialog, h, mount, openDialog, svgIcon } from './dom.ts';
 import { GOOD_LABELS, ICONS, STROKED, type IconName } from './icons.ts';
 import { MapRenderer, type Highlight } from './renderer.ts';
@@ -222,7 +222,7 @@ export class GameScreen {
           this.toast(`${this.player(e.player).name} built a ${ITEM_LABEL[e.item].toLowerCase()} in ${this.tname(e.territory)}`, false, e.player);
           break;
         case 'trade':
-          play('coin');
+          play('trade');
           this.toast(`${this.player(e.from).name} and ${this.player(e.to).name} made a trade`, false, e.from);
           break;
         case 'ship':
@@ -336,6 +336,8 @@ export class GameScreen {
       const keep = { tradeAs: this.ui.tradeAs, info: this.ui.info };
       this.ui = { ...freshUi(key), ...keep };
     }
+    // Music turns martial during conquest.
+    setMood(s.phase === 'conquest' ? 'war' : 'peace');
     this.renderBrand();
     this.renderRoster(act?.seat ?? -1);
     this.renderInfo();
@@ -1134,7 +1136,7 @@ export class GameScreen {
     const err = this.session.dispatch(action);
     if (err) {
       this.toast(err, true);
-      play('lose');
+      play('error');
       return;
     }
     if (action.type === 'pick' || action.type === 'placeStockpile') play('select');
@@ -1300,15 +1302,10 @@ export class GameScreen {
           { style: { display: 'grid', gap: '10px', marginTop: '16px' } },
           h('button', { onclick: () => (close(), showRules()) }, icon('scroll'), 'How to play'),
           h(
-            'button',
-            {
-              onclick: (e: Event) => {
-                setSound(!soundOn());
-                (e.currentTarget as HTMLElement).replaceChildren(icon(soundOn() ? 'sound' : 'mute'), `Sound: ${soundOn() ? 'on' : 'off'}`);
-              },
-            },
-            icon(soundOn() ? 'sound' : 'mute'),
-            `Sound: ${soundOn() ? 'on' : 'off'}`,
+            'div.row',
+            { style: { gap: '10px' } },
+            audioButton('sound'),
+            audioButton('music'),
           ),
           document.fullscreenEnabled
             ? h('button', { onclick: () => (close(), document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {})) }, icon('fullscreen'), 'Full screen')
@@ -1335,6 +1332,17 @@ export class GameScreen {
     );
     openDialog(dlg);
   }
+}
+
+/** A button that cycles Sound or Music through Off / Soft / Full. */
+export function audioButton(kind: 'sound' | 'music') {
+  const ico = () => icon(kind === 'music' ? 'music' : level(kind) === 'off' ? 'mute' : 'sound');
+  const btn = h('button', { style: { flex: '1' } }, ico(), levelLabel(kind));
+  btn.addEventListener('click', () => {
+    cycle(kind);
+    btn.replaceChildren(ico(), levelLabel(kind));
+  });
+  return btn;
 }
 
 function goodIcon(g: string) {

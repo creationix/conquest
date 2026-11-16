@@ -8,6 +8,7 @@ import { play } from './audio.ts';
 import { h, mount, svgIcon } from './dom.ts';
 import { ICONS, STROKED, type IconName } from './icons.ts';
 import { MapRenderer } from './renderer.ts';
+import { audioButton } from './game-ui.ts';
 
 function icon(name: IconName) {
   return svgIcon(ICONS[name], 'ico' + (STROKED.has(name) ? ' stroke' : ''));
@@ -40,6 +41,7 @@ export function showHome(root: HTMLElement, actions: HomeActions): () => void {
         : h('button', { onclick: actions.networkHelp }, icon('device'), 'Play with other devices'),
       h('button.quiet', { onclick: actions.rules }, icon('scroll'), 'How to play'),
     ),
+    h('div.row', { style: { marginTop: '14px', gap: '8px' } }, audioButton('sound'), audioButton('music')),
     h('div.foot', 'Pass and play on one device, or connect phones, tablets and laptops on your Wi-Fi.'),
   );
   mount(root, h('div.screen.home', canvas, h('div.veil'), card));

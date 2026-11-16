@@ -27,12 +27,13 @@ export const ICONS = {
   mute: 'M4 9.5h3.5L12 5.5v13l-4.5-4H4ZM16 9.5l5 5m0-5-5 5',
   fullscreen: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5',
   trade: 'M4 8h13l-3.5-3.5M20 16H7l3.5 3.5',
+  music: 'M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm11-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
 } as const;
 
 export type IconName = keyof typeof ICONS;
 
 /** Icons drawn with strokes instead of fills. */
-export const STROKED = new Set<IconName>(['menu', 'close', 'fit', 'plus', 'minus', 'computer', 'device', 'check', 'scroll', 'sound', 'mute', 'fullscreen', 'trade']);
+export const STROKED = new Set<IconName>(['menu', 'close', 'fit', 'plus', 'minus', 'computer', 'device', 'check', 'scroll', 'sound', 'mute', 'fullscreen', 'trade', 'music']);
 
 const cache = new Map<string, Path2D>();
 export function iconPath(name: IconName): Path2D {

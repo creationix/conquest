@@ -62,8 +62,8 @@ button[aria-pressed='true'] { border-color: var(--accent); background: #3a4b45; 
 .sheet { max-width: 760px; margin: 0 auto; }
 
 /* Home */
-.home canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .55; filter: saturate(.9); }
-.home .veil { position: absolute; inset: 0; background: radial-gradient(ellipse at center, #091d27aa 0%, #091d27ee 70%); pointer-events: none; }
+.home canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .8; }
+.home .veil { position: absolute; inset: 0; background: radial-gradient(ellipse at center, #091d2799 0%, #091d27cc 75%); pointer-events: none; }
 .home .menu-card {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: min(420px, calc(100vw - 32px)); text-align: center; padding: 34px 28px 26px;

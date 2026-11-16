@@ -2,7 +2,7 @@ import './style.css';
 import type { Lobby } from '../engine/protocol.ts';
 import { actors, createGame } from '../engine/rules.ts';
 import { chooseAction } from '../engine/ai.ts';
-import { unlockAudio } from './audio.ts';
+import { setMood, setupAudio } from './audio.ts';
 import { GameScreen } from './game-ui.ts';
 import { showRules } from './rules-ui.ts';
 import { detectServer, loadSave, LocalSession, NetClient, NetSession, clearSave } from './session.ts';
@@ -23,6 +23,7 @@ function swap(next: () => (() => void) | void) {
 
 function home() {
   closeNet();
+  setMood('peace');
   swap(() => {
     const save = loadSave();
     return showHome(root, {
@@ -170,7 +171,7 @@ function network() {
 // ---------------------------------------------------------------------------
 // Boot
 
-unlockAudio();
+setupAudio();
 detectServer().then((info) => {
   server = info;
   // Rejoin a network game after a reload.
