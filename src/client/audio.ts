@@ -126,34 +126,57 @@ export function setupAudio() {
 }
 
 // ---------------------------------------------------------------------------
-// Effects
+// Effects: a small kit of synthesized sounds. Every call varies slightly in
+// pitch so repeated events never sound mechanical.
 
-type Sfx = 'click' | 'tap' | 'select' | 'build' | 'coin' | 'win' | 'lose' | 'battle' | 'turn' | 'victory' | 'trade' | 'error' | 'plunder';
+export type Sfx =
+  | 'click' | 'tap' | 'select' | 'error'
+  | 'flag' | 'chest' | 'turn' | 'bell'
+  | 'cueBuild' | 'cueHarvest' | 'cueMarket' | 'cueSail' | 'cueWar' | 'cueSkip'
+  | 'gold' | 'iron' | 'coal' | 'timber' | 'hooves'
+  | 'city' | 'weapon' | 'boat' | 'splash'
+  | 'offer' | 'trade' | 'decline'
+  | 'battle' | 'triumph' | 'win' | 'loss' | 'repel' | 'plunder' | 'gong' | 'victory';
 
-function tone(freq: number, start: number, dur: number, type: OscillatorType, gain: number, slide = 0) {
+export interface SfxOptions {
+  /** Seconds from now. */
+  delay?: number;
+  /** Per-player variation (0-6): shifts pitch so each lord sounds a little different. */
+  variant?: number;
+  /** 0-1: bigger battles get bigger drums. */
+  strength?: number;
+}
+
+let jitter = 1;
+let base = 0;
+
+function tone(freq: number, start: number, dur: number, type: OscillatorType, gain: number, slide = 0, attack = 0.01) {
   if (!ctx || !buses.sound) return;
-  const t = ctx.currentTime + start;
+  const t = ctx.currentTime + base + start;
   const osc = ctx.createOscillator();
   const g = ctx.createGain();
   osc.type = type;
-  osc.frequency.setValueAtTime(freq, t);
-  if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(30, freq * slide), t + dur);
+  const f = freq * jitter;
+  osc.frequency.setValueAtTime(f, t);
+  if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(30, f * slide), t + dur);
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(gain, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(gain, t + attack);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   osc.connect(g).connect(buses.sound);
   osc.start(t);
   osc.stop(t + dur + 0.05);
 }
 
-function hiss(start: number, dur: number, gain: number, type: BiquadFilterType, freq: number) {
+function hiss(start: number, dur: number, gain: number, type: BiquadFilterType, freq: number, sweepTo = 0, q = 1) {
   if (!ctx || !buses.sound || !noise) return;
-  const t = ctx.currentTime + start;
+  const t = ctx.currentTime + base + start;
   const src = ctx.createBufferSource();
   src.buffer = noise;
   const filter = ctx.createBiquadFilter();
   filter.type = type;
-  filter.frequency.value = freq;
+  filter.frequency.setValueAtTime(freq, t);
+  if (sweepTo) filter.frequency.exponentialRampToValueAtTime(sweepTo, t + dur);
+  filter.Q.value = q;
   const g = ctx.createGain();
   g.gain.setValueAtTime(gain, t);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
@@ -162,53 +185,166 @@ function hiss(start: number, dur: number, gain: number, type: BiquadFilterType, 
   src.stop(t + dur + 0.05);
 }
 
-export function play(sfx: Sfx) {
+/** A struck metal object: inharmonic partials that ring and fade. */
+function metal(start: number, freq: number, gain: number, decay: number) {
+  [1, 2.76, 5.4, 8.93].forEach((r, i) => tone(freq * r, start, decay / (1 + i * 0.6), 'sine', gain / (1 + i)));
+}
+
+/** A wooden knock: a quick pitched thump. */
+function knock(start: number, freq: number, gain: number) {
+  tone(freq, start, 0.09, 'sine', gain, 0.55, 0.003);
+  hiss(start, 0.03, gain * 0.5, 'bandpass', freq * 3, 0, 2);
+}
+
+/** A soft brass note: sawtooth through a gentle filter (via a quieter triangle doubling). */
+function horn(start: number, freq: number, dur: number, gain: number) {
+  tone(freq, start, dur, 'sawtooth', gain * 0.35, 0, 0.06);
+  tone(freq, start, dur, 'triangle', gain, 0, 0.05);
+  tone(freq / 2, start, dur, 'sine', gain * 0.6, 0, 0.05);
+}
+
+function drum(start: number, gain: number, pitch = 110) {
+  tone(pitch, start, 0.3, 'sine', gain, 0.45, 0.004);
+  hiss(start, 0.07, gain * 0.5, 'lowpass', 700);
+}
+
+export function play(sfx: Sfx, options: SfxOptions = {}) {
   if (levels.sound === 'off' || !ctx || ctx.state !== 'running') return;
+  base = options.delay ?? 0;
+  const v = options.variant ?? -1;
+  // Small random detune on every sound, plus a per-player pitch where given.
+  jitter = (1 + (Math.random() - 0.5) * 0.05) * (v >= 0 ? Math.pow(2, (v - 3) / 12) : 1);
+  const strength = Math.max(0, Math.min(1, options.strength ?? 0.5));
   switch (sfx) {
+    // --- Interface ---
     case 'click':
-      return tone(1200, 0, 0.035, 'triangle', 0.05);
+      return tone(1300, 0, 0.03, 'triangle', 0.035);
     case 'tap':
-      return tone(700, 0, 0.06, 'triangle', 0.08);
+      return tone(720, 0, 0.05, 'triangle', 0.06);
     case 'select':
-      tone(523, 0, 0.09, 'triangle', 0.1);
-      return tone(784, 0.06, 0.14, 'triangle', 0.09);
-    case 'build':
-      // Hammer on an anvil: two clanks with a metallic ring.
-      for (const at of [0, 0.13]) {
-        hiss(at, 0.05, 0.25, 'bandpass', 3000);
-        tone(1870, at, 0.25, 'sine', 0.05);
-        tone(2630, at, 0.18, 'sine', 0.03);
-      }
-      return;
-    case 'coin':
-      tone(988, 0, 0.08, 'square', 0.04);
-      return tone(1319, 0.07, 0.2, 'square', 0.04);
-    case 'trade':
-      [659, 784, 988].forEach((f, i) => tone(f, i * 0.07, 0.16, 'triangle', 0.08));
-      return;
-    case 'battle':
-      // War drums and a clash of steel.
-      [0, 0.16, 0.32].forEach((at, i) => {
-        tone(110 - i * 10, at, 0.3, 'sine', 0.35, 0.45);
-        hiss(at, 0.08, 0.2, 'lowpass', 700);
-      });
-      hiss(0.5, 0.35, 0.18, 'highpass', 4500);
-      tone(1480, 0.5, 0.4, 'sine', 0.04);
-      return;
-    case 'win':
-      [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.1, 0.3, 'triangle', 0.1));
-      return;
-    case 'lose':
-      [392, 370, 311].forEach((f, i) => tone(f, i * 0.16, 0.35, 'triangle', 0.09));
-      return;
+      tone(523, 0, 0.08, 'triangle', 0.08);
+      return tone(784, 0.05, 0.12, 'triangle', 0.07);
     case 'error':
-      return tone(220, 0, 0.18, 'square', 0.04, 0.8);
+      tone(233, 0, 0.12, 'triangle', 0.08);
+      return tone(196, 0.1, 0.2, 'triangle', 0.08);
     case 'turn':
-      tone(587, 0, 0.14, 'sine', 0.1);
-      return tone(880, 0.12, 0.28, 'sine', 0.1);
+      // A rising two-note call, pitched to the player.
+      tone(587, 0, 0.16, 'sine', 0.1);
+      return tone(880, 0.12, 0.3, 'sine', 0.1);
+    // --- Claiming land and stockpiles ---
+    case 'flag':
+      // Cloth whoosh, then the pole thumping into the ground.
+      hiss(0, 0.18, 0.12, 'bandpass', 600, 2400, 1.5);
+      knock(0.16, 140, 0.25);
+      return tone(660, 0.18, 0.18, 'triangle', 0.05);
+    case 'chest':
+      // A heavy lid and a lock click.
+      knock(0, 90, 0.3);
+      knock(0.07, 70, 0.2);
+      return metal(0.2, 2400, 0.03, 0.12);
+    case 'bell':
+      // The bell tolls in a new year.
+      metal(0, 330, 0.09, 2.2);
+      return metal(0, 165, 0.05, 2.6);
+    // --- Phase cues ---
+    case 'cueBuild':
+      [0, 0.18].forEach((at) => metal(at, 1400, 0.04, 0.35));
+      return tone(392, 0.3, 0.4, 'triangle', 0.06);
+    case 'cueHarvest':
+      [659, 784, 988].forEach((f, i) => tone(f, i * 0.09, 0.5, 'sine', 0.06));
+      return;
+    case 'cueMarket':
+      [988, 1175, 1319, 1175].forEach((f, i) => metal(i * 0.11, f, 0.03, 0.4));
+      return;
+    case 'cueSail':
+      // A ship's horn over the waves.
+      hiss(0, 0.9, 0.06, 'lowpass', 400, 900);
+      return horn(0.1, 147, 0.8, 0.07);
+    case 'cueWar':
+      drum(0, 0.3, 90);
+      drum(0.22, 0.3, 90);
+      horn(0.38, 147, 0.25, 0.08);
+      return horn(0.62, 220, 0.5, 0.08);
+    case 'cueSkip':
+      // A muted, falling shrug: this phase is skipped.
+      tone(330, 0, 0.18, 'triangle', 0.05);
+      return tone(247, 0.14, 0.3, 'triangle', 0.05);
+    // --- Production ---
+    case 'gold':
+      tone(1976, 0, 0.12, 'square', 0.03);
+      tone(2637, 0.06, 0.3, 'sine', 0.1);
+      return metal(0.02, 3100, 0.04, 0.35);
+    case 'iron':
+      return metal(0, 620, 0.06, 0.45);
+    case 'coal':
+      // Tumbling lumps.
+      [0, 0.05, 0.11].forEach((at, i) => knock(at, 120 - i * 15, 0.15));
+      return hiss(0, 0.25, 0.08, 'lowpass', 500);
+    case 'timber':
+      // An axe biting wood, twice.
+      knock(0, 330, 0.2);
+      return knock(0.13, 300, 0.16);
+    case 'hooves':
+      // A short gallop.
+      [0, 0.08, 0.26, 0.34].forEach((at, i) => knock(at, i % 2 ? 260 : 300, 0.14));
+      return;
+    // --- Building ---
+    case 'city':
+      // Stone blocks set in place, then a bright chime.
+      [0, 0.14, 0.28].forEach((at) => knock(at, 95, 0.28));
+      metal(0.42, 880, 0.06, 1.2);
+      return metal(0.42, 1320, 0.04, 1);
+    case 'weapon':
+      // Steel drawn and ringing.
+      hiss(0, 0.25, 0.1, 'highpass', 3000, 6000);
+      return metal(0.18, 1870, 0.05, 0.8);
+    case 'boat':
+      hiss(0, 0.5, 0.2, 'lowpass', 1800, 300);
+      knock(0.35, 180, 0.16);
+      return knock(0.45, 150, 0.1);
+    case 'splash':
+      return hiss(0, 0.5, 0.22, 'lowpass', 2000, 300);
+    // --- Trading ---
+    case 'offer':
+      [1319, 1568].forEach((f, i) => tone(f, i * 0.07, 0.22, 'sine', 0.09));
+      return;
+    case 'trade':
+      // Coins changing hands both ways.
+      [1760, 2093, 1568, 1976].forEach((f, i) => metal(i * 0.07, f, 0.05, 0.3));
+      return;
+    case 'decline':
+      tone(392, 0, 0.18, 'triangle', 0.06);
+      return tone(311, 0.15, 0.25, 'triangle', 0.06);
+    // --- Battle ---
+    case 'battle': {
+      // Drums: more beats for bigger battles, then a clash of steel.
+      const beats = 2 + Math.round(strength * 3);
+      for (let i = 0; i < beats; i++) drum(i * 0.14, 0.22 + strength * 0.15, 105 - i * 6);
+      hiss(beats * 0.14, 0.3, 0.14, 'highpass', 4000);
+      return metal(beats * 0.14, 1480, 0.035, 0.5);
+    }
+    case 'triumph':
+      // You won: a bright fanfare.
+      [523, 659, 784].forEach((f, i) => horn(i * 0.11, f, 0.16, 0.1));
+      return horn(0.36, 1047, 0.5, 0.11);
+    case 'win':
+      // Someone else won: a short, neutral flourish.
+      [392, 523].forEach((f, i) => horn(i * 0.1, f, 0.22, 0.07));
+      return;
+    case 'loss':
+      // You lost a land: a falling, minor phrase.
+      [392, 349, 311].forEach((f, i) => horn(i * 0.16, f, 0.26, 0.05));
+      return;
+    case 'repel':
+      // The attack breaks on shields.
+      metal(0, 800, 0.06, 0.35);
+      knock(0.05, 110, 0.25);
+      return tone(196, 0.12, 0.4, 'triangle', 0.06, 0.8);
+    case 'gong':
+      metal(0, 98, 0.12, 3);
+      return metal(0, 147, 0.06, 2.5);
     case 'plunder': {
-      // A stockpile is looted: a dark brass stab, then a treasure chest's
-      // worth of coins spilling out and bouncing to rest.
+      // A stockpile is looted: a dark brass stab, then spilling coins.
       for (const [f, g] of [[147, 0.07], [175, 0.06], [220, 0.05]] as const) {
         tone(f, 0, 0.9, 'sawtooth', g * 0.6);
         tone(f / 2, 0, 1.1, 'triangle', g);
@@ -222,18 +358,12 @@ export function play(sfx: Sfx) {
         hiss(at, 0.03, 0.05, 'highpass', 6000);
         at += 0.035 + i * 0.004;
       }
-      // The last coin spins down.
-      tone(2400, at, 0.5, 'sine', 0.035, 0.7);
-      return;
+      return tone(2400, at, 0.5, 'sine', 0.035, 0.7);
     }
     case 'victory': {
-      // A short fanfare.
       const notes = [523, 523, 523, 659, 784, 659, 784, 1047];
       const at = [0, 0.12, 0.24, 0.36, 0.6, 0.84, 0.96, 1.2];
-      notes.forEach((f, i) => {
-        tone(f, at[i], i === notes.length - 1 ? 1 : 0.22, 'sawtooth', 0.05);
-        tone(f / 2, at[i], i === notes.length - 1 ? 1 : 0.22, 'triangle', 0.06);
-      });
+      notes.forEach((f, i) => horn(at[i], f, i === notes.length - 1 ? 1 : 0.22, 0.1));
       return;
     }
   }

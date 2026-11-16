@@ -213,10 +213,17 @@ export class GameScreen {
   }
 
   private announce(events: LoggedEvent[]) {
-    let produced = false;
+    // Each kind of event has its own sound. Sounds in one batch are spaced
+    // out (cue after the year bell, production one site at a time).
+    let cueDelay = 0;
+    let produced = 0;
+    const colorOf = (p: number) => (p >= 0 ? this.player(p).color : 3);
+    const local = (p: number) => p >= 0 && this.session.controls(p);
     for (const { event: e } of events) {
       switch (e.kind) {
         case 'year':
+          play('bell');
+          cueDelay = 1.1;
           this.toast(`Year ${e.year} begins`);
           break;
         case 'phase':
@@ -226,18 +233,42 @@ export class GameScreen {
               trade: 'Roads are closed: no trading this year.',
               shipment: 'Storms at sea: no shipments this year.',
             };
+            play('cueSkip', { delay: cueDelay });
             this.toast(why[e.phase] ?? `${PHASE_NAMES[e.phase]} skipped`);
+          } else {
+            const cue: Partial<Record<Phase, Parameters<typeof play>[0]>> = {
+              development: 'cueBuild',
+              production: 'cueHarvest',
+              trade: 'cueMarket',
+              shipment: 'cueSail',
+              conquest: 'cueWar',
+            };
+            const c = cue[e.phase];
+            if (c) play(c, { delay: cueDelay });
           }
+          cueDelay += 0.9;
           break;
         case 'deal':
+          play('bell');
           this.toast('The lands have been dealt out.');
           break;
+        case 'pick':
+          play('flag', { variant: colorOf(e.player) });
+          break;
+        case 'stockpile':
+          play('chest', { variant: colorOf(e.player) });
+          break;
         case 'produce':
+          // One sound per site, in step with the floating labels (at most a dozen).
+          if (produced < 12) play(e.good, { delay: cueDelay + 0.3 + produced * 0.11 });
+          produced++;
+          break;
         case 'horse':
-          produced = true;
+          if (produced < 12) play('hooves', { delay: cueDelay + 0.3 + produced * 0.11 });
+          produced++;
           break;
         case 'build':
-          play('build');
+          play(e.item, { variant: colorOf(e.player) });
           this.toast(`${this.player(e.player).name} built a ${ITEM_LABEL[e.item].toLowerCase()} in ${this.tname(e.territory)}`, false, e.player);
           break;
         case 'trade':
@@ -246,50 +277,56 @@ export class GameScreen {
           break;
         case 'offer':
           // Let people know when someone elsewhere (or a computer) offers them a deal.
-          if (this.session.controls(e.to) && !this.session.controls(e.from)) {
-            play('coin');
+          if (local(e.to) && !local(e.from)) {
+            play('offer');
             this.toast(`${this.player(e.from).name} offers ${this.player(e.to).name} ${stockText(e.give)} for ${stockText(e.get)}`, false, e.from);
           }
           break;
         case 'declined':
-          if (this.session.controls(e.from) || this.session.controls(e.to)) {
+          if (local(e.from) || local(e.to)) {
+            play('decline');
             this.toast(`${this.player(e.to).name} turned down ${this.player(e.from).name}'s offer`, false, e.to);
           }
           break;
-        case 'ship':
+        case 'ship': {
+          const sound = { stockpile: 'chest', weapon: 'weapon', horse: 'hooves', boat: 'splash' } as const;
+          play(sound[e.move.kind], { variant: colorOf(e.player) });
           if (e.move.kind === 'stockpile') this.toast(`${this.player(e.player).name} moved their stockpile`, false, e.player);
           else this.toast(`${this.player(e.player).name} moved a ${e.move.kind} to ${this.tname(e.move.to)}`, false, e.player);
           break;
+        }
         case 'battle': {
-          play('battle');
+          // Bigger battles get bigger drums; the result depends on whose side you're on.
+          play('battle', { strength: (e.attack + e.defense) / 16 });
           const a = this.player(e.attacker).name;
           const d = e.defender < 0 ? 'the locals' : this.player(e.defender).name;
           const odds = `${e.attack} vs ${e.defense}`;
-          if (!e.looted) setTimeout(() => play(e.won ? 'win' : 'lose'), 600);
+          const outcome = !e.won ? 'repel' : local(e.attacker) ? 'triumph' : local(e.defender) ? 'loss' : 'win';
+          if (!e.looted) play(outcome, { delay: 0.75 });
           if (e.won) this.toast(`${a} conquered ${this.tname(e.target)} from ${d} (${odds})`, false, e.attacker);
           else this.toast(`${d} held ${this.tname(e.target)} against ${a} (${odds})`, false, e.defender);
           if (e.looted) {
-            setTimeout(() => play('plunder'), 700);
+            play('plunder', { delay: 0.75 });
             const loot = GOODS.filter((g) => e.looted![g] > 0).map((g) => `${e.looted![g]} ${g}`).join(', ');
             this.toast(`${a} captured ${d}'s stockpile${loot ? ': ' + loot : ''}!`, false, e.attacker);
           }
           break;
         }
         case 'eliminated':
+          play('gong', { delay: 1.2 });
           this.toast(`${this.player(e.player).name} has been driven from the map!`, false, e.player);
           break;
         case 'pass':
           if (e.reason && e.reason !== 'no shipment') this.toast(e.reason, false, e.player);
-          else if (!e.reason && e.target !== undefined && !this.session.controls(e.player)) {
+          else if (!e.reason && e.target !== undefined && !local(e.player)) {
             this.toast(`${this.player(e.player).name} called off the attack on ${this.tname(e.target)}`, false, e.player);
           }
           break;
         case 'win':
-          setTimeout(() => play('victory'), 400);
+          play('victory', { delay: 0.4 });
           break;
       }
     }
-    if (produced) play('coin');
   }
 
   toast(text: string, error = false, player = -1) {
@@ -1444,7 +1481,6 @@ export class GameScreen {
       play('error');
       return;
     }
-    if (action.type === 'pick' || action.type === 'placeStockpile') play('select');
     this.ui.info = null;
     this.render();
   }
@@ -1567,7 +1603,7 @@ export class GameScreen {
               onclick: () => {
                 this.handoffDone = key;
                 this.lastSeat = seat;
-                play('turn');
+                play('turn', { variant: p.color });
                 this.render();
               },
             },
