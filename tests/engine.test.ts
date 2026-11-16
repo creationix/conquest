@@ -306,3 +306,27 @@ for (const [label, over, n] of [
     }
   });
 }
+
+test('dealt lands are fair and grow as connected realms', () => {
+  const kinds = ['gold', 'iron', 'coal', 'timber', 'horses', null];
+  let lonely = 0;
+  let lands = 0;
+  for (const players of [2, 3, 4, 6]) {
+    for (const seed of ['D1', 'D2', 'D3']) {
+      const s = createGame(settings({ selection: 'deal', level: 3, seed: seed + players }), humans(players));
+      const info = analyze(s.map);
+      for (const k of kinds) {
+        const counts = s.players.map((p) => s.territories.filter((t) => t.owner === p.id && t.site === k).length);
+        assert.ok(Math.max(...counts) - Math.min(...counts) <= 2, `${k ?? 'barren'} split evenly (${counts})`);
+      }
+      const owned = s.players.map((p) => s.territories.filter((t) => t.owner === p.id).length);
+      assert.equal(Math.max(...owned), Math.min(...owned), 'everyone gets the same number of lands');
+      s.territories.forEach((t, id) => {
+        if (t.owner < 0) return;
+        lands++;
+        if (!info.territories[id].neighbors.some((n) => s.territories[n].owner === t.owner)) lonely++;
+      });
+    }
+  }
+  assert.ok(lonely / lands < 0.08, `few stray lands (${lonely}/${lands})`);
+});

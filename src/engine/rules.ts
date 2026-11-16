@@ -7,6 +7,7 @@
 import { analyze, generateMap, fromLegacy, type MapData, type MapInfo } from './map.ts';
 import { Rng, hashSeed } from './rng.ts';
 import { CLASSIC_MAP } from './classic.ts';
+import { smartDeal } from './deal.ts';
 import {
   GOODS,
   type Action,
@@ -289,11 +290,9 @@ export function createGame(settings: Settings, setups: PlayerSetup[]): GameState
     version: 0,
   };
   if (settings.selection === 'deal') {
-    random(s, (r) => {
-      const ids = r.shuffle([...s.territories.keys()]);
-      const each = Math.floor(ids.length / setups.length);
-      for (let i = 0; i < each * setups.length; i++) s.territories[ids[i]].owner = order[i % setups.length];
-    });
+    // A fair deal: even resources, connected realms (see deal.ts).
+    const owners = random(s, (r) => smartDeal(analyze(map), sites, order, r));
+    owners.forEach((o, t) => (s.territories[t].owner = o));
     emit(s, { kind: 'deal' });
     beginPhase(s, 'production');
   } else {
