@@ -9,6 +9,53 @@ import { h, mount, svgIcon } from './dom.ts';
 import { ICONS, STROKED, type IconName } from './icons.ts';
 import { MapRenderer } from './renderer.ts';
 import { audioButton } from './game-ui.ts';
+import { closeDialog, openDialog } from './dom.ts';
+import { installMode, onInstallChange, promptInstall } from './pwa.ts';
+
+/** Home-screen install offer: a real prompt on Chrome/Edge/Android, instructions on iOS. */
+function installRow(): { el: HTMLElement; off: () => void } {
+  const el = h('div', { style: { marginTop: '10px' } });
+  const render = () => {
+    const mode = installMode();
+    el.hidden = !mode;
+    mount(
+      el,
+      mode
+        ? h(
+            'button.quiet',
+            { style: { width: '100%' }, onclick: () => (mode === 'prompt' ? promptInstall() : showIOSInstall()) },
+            icon('download'),
+            mode === 'prompt' ? 'Install the app' : `Add to your ${/iPhone/.test(navigator.userAgent) ? 'iPhone' : 'iPad'}`,
+          )
+        : null,
+    );
+  };
+  render();
+  return { el, off: onInstallChange(render) };
+}
+
+function showIOSInstall() {
+  const dlg = h('dialog') as HTMLDialogElement;
+  const safari = !/CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
+  dlg.appendChild(
+    h(
+      'div',
+      h('h2', { style: { marginTop: '0' } }, 'Install Conquest'),
+      safari
+        ? h(
+            'ol',
+            { style: { lineHeight: '1.7', paddingLeft: '20px' } },
+            h('li', 'Tap the Share button (the square with an arrow) in Safari’s toolbar.'),
+            h('li', 'Scroll down and tap “Add to Home Screen”.'),
+            h('li', 'Tap “Add”. Conquest opens full screen from its icon and plays offline.'),
+          )
+        : h('p', 'Open this page in Safari, then use Share → “Add to Home Screen”. Other iOS browsers may not install it as an app.'),
+      h('div.row', h('span.spacer'), h('button.primary', { onclick: () => closeDialog(dlg) }, 'Got it')),
+    ),
+  );
+  openDialog(dlg);
+}
+
 
 function icon(name: IconName) {
   return svgIcon(ICONS[name], 'ico' + (STROKED.has(name) ? ' stroke' : ''));
@@ -27,6 +74,7 @@ export interface HomeActions {
 
 export function showHome(root: HTMLElement, actions: HomeActions): () => void {
   const canvas = h('canvas') as HTMLCanvasElement;
+  const install = installRow();
   const card = h(
     'div.menu-card',
     h('div.eyebrow', 'A remake of the 1986 classic'),
@@ -42,6 +90,7 @@ export function showHome(root: HTMLElement, actions: HomeActions): () => void {
       h('button.quiet', { onclick: actions.rules }, icon('scroll'), 'How to play'),
     ),
     h('div.row', { style: { marginTop: '14px', gap: '8px' } }, audioButton('sound'), audioButton('music')),
+    install.el,
     h('div.foot', 'Pass and play on one device, or connect phones, tablets and laptops on your Wi-Fi.'),
   );
   mount(root, h('div.screen.home', canvas, h('div.veil'), card));
@@ -72,6 +121,7 @@ export function showHome(root: HTMLElement, actions: HomeActions): () => void {
   };
   document.addEventListener('visibilitychange', onVis);
   return () => {
+    install.off();
     stopped = true;
     host?.stop();
     renderer.destroy();

@@ -3,6 +3,7 @@ import type { Lobby } from '../engine/protocol.ts';
 import { actors, createGame } from '../engine/rules.ts';
 import { chooseAction } from '../engine/ai.ts';
 import { setMood, setupAudio } from './audio.ts';
+import { setupInstall } from './pwa.ts';
 import { GameScreen } from './game-ui.ts';
 import { showRules } from './rules-ui.ts';
 import { detectServer, loadSave, LocalSession, NetClient, NetSession, clearSave } from './session.ts';
@@ -172,6 +173,7 @@ function network() {
 // Boot
 
 setupAudio();
+setupInstall();
 detectServer().then((info) => {
   server = info;
   // Rejoin a network game after a reload.

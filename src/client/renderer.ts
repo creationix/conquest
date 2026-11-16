@@ -126,23 +126,27 @@ export class MapRenderer {
     this.requestDraw();
   }
 
+  /** Map scale (px per cell) that these insets would give. */
+  scaleFor(o: Insets): number {
+    if (!this.map) return 0;
+    const w = this.width - o.left - o.right;
+    const hh = this.height - o.top - o.bottom;
+    const rotate = this.map.width > this.map.height && this.height > this.width * 1.1;
+    const vw = rotate ? this.map.height : this.map.width;
+    const vh = rotate ? this.map.width : this.map.height;
+    return Math.min(w / vw, hh / vh);
+  }
+
   /** Reserve screen edges for the HUD; with several options, use the one giving the biggest map. */
   setInsets(options: Insets | Insets[]) {
     const list = Array.isArray(options) ? options : [options];
     let insets = list[0];
-    if (this.map && list.length > 1) {
-      let best = -1;
-      for (const o of list) {
-        const w = this.width - o.left - o.right;
-        const hh = this.height - o.top - o.bottom;
-        const rotate = this.map.width > this.map.height && this.height > this.width * 1.1;
-        const vw = rotate ? this.map.height : this.map.width;
-        const vh = rotate ? this.map.width : this.map.height;
-        const scale = Math.min(w / vw, hh / vh);
-        if (scale > best) {
-          best = scale;
-          insets = o;
-        }
+    let best = -1;
+    for (const o of list) {
+      const scale = this.scaleFor(o);
+      if (scale > best) {
+        best = scale;
+        insets = o;
       }
     }
     const changed = JSON.stringify(insets) !== JSON.stringify(this.insets);

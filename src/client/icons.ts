@@ -16,7 +16,7 @@ export const ICONS = {
   swords: 'M3.4 2.4h-1v1l10.8 11 1.8-1.8ZM19.3 13.6l-1.4-1.4-5.7 5.7 1.4 1.4 1.6-1.6 3.3 3.3 2.5-.1.1-2.5-3.3-3.3ZM20.6 2.4h1v1l-6.4 6.5-1.8-1.8ZM4.7 13.6l1.4-1.4 5.7 5.7-1.4 1.4-1.6-1.6-3.3 3.3-2.5-.1-.1-2.5 3.3-3.3Z',
   menu: 'M4 6h16M4 12h16M4 18h16',
   close: 'M6 6l12 12M18 6 6 18',
-  fit: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5',
+  fit: 'M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z',
   plus: 'M12 5v14M5 12h14',
   minus: 'M5 12h14',
   computer: 'M4 5h16v10H4ZM9 19h6M12 15v4',
@@ -26,6 +26,8 @@ export const ICONS = {
   sound: 'M4 9.5h3.5L12 5.5v13l-4.5-4H4ZM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11',
   mute: 'M4 9.5h3.5L12 5.5v13l-4.5-4H4ZM16 9.5l5 5m0-5-5 5',
   fullscreen: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5',
+  exitFullscreen: 'M3 8h5V3m8 0v5h5M3 16h5v5m13-5h-5v5',
+  download: 'M12 3v12m-5-5 5 5 5-5M4 20h16',
   trade: 'M4 8h13l-3.5-3.5M20 16H7l3.5 3.5',
   music: 'M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm11-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
 } as const;
@@ -33,7 +35,7 @@ export const ICONS = {
 export type IconName = keyof typeof ICONS;
 
 /** Icons drawn with strokes instead of fills. */
-export const STROKED = new Set<IconName>(['menu', 'close', 'fit', 'plus', 'minus', 'computer', 'device', 'check', 'scroll', 'sound', 'mute', 'fullscreen', 'trade', 'music']);
+export const STROKED = new Set<IconName>(['menu', 'close', 'fit', 'plus', 'minus', 'computer', 'device', 'check', 'scroll', 'sound', 'mute', 'fullscreen', 'trade', 'music', 'exitFullscreen', 'download']);
 
 const cache = new Map<string, Path2D>();
 export function iconPath(name: IconName): Path2D {

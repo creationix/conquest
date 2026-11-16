@@ -117,7 +117,7 @@ h2 { font-size: 19px; margin: 26px 0 10px; }
 .track span.done { background: #f5bd6966; }
 .track span.skip { background: repeating-linear-gradient(90deg, #ffffff22 0 3px, transparent 3px 6px); }
 
-.roster { top: calc(12px + var(--safe-top)); right: calc(12px + var(--safe-right)); padding: 6px; min-width: 200px; max-width: min(330px, 46vw); }
+.roster { top: calc(12px + var(--safe-top)); right: calc(12px + var(--safe-right)); padding: 6px; width: min(270px, 46vw); }
 .prow { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 4px 8px; padding: 6px 8px; border-radius: 11px; position: relative; }
 .prow.turn { background: #ffffff10; box-shadow: inset 3px 0 0 var(--accent); }
 .prow.out { opacity: .4; }
@@ -131,7 +131,7 @@ h2 { font-size: 19px; margin: 26px 0 10px; }
 .goods span, .cost span { display: inline-flex; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; }
 .goods .ico, .cost .ico { width: 14px; height: 14px; }
 .roster.compact .goods { display: none; }
-.roster.compact { min-width: 0; }
+.roster.compact { width: 150px; }
 .roster.compact .prow { grid-template-columns: 26px auto auto; }
 .ready-mark { color: var(--ok); font-size: 12px; }
 
@@ -218,9 +218,15 @@ dialog::backdrop { background: #04131dbb; }
   .panel .choice button small { display: none; }
   .panel .actions { margin-top: 8px; }
   .vs .num { font-size: 20px; }
-  .panel { left: auto; right: calc(64px + var(--safe-right)); transform: none; width: min(420px, 52vw); max-height: calc(100vh - 24px); bottom: calc(8px + var(--safe-bottom)); }
   .roster { max-height: calc(100vh - 24px); overflow-y: auto; }
 }
+/* Side layout: roster and prompts share a column on the right, beside the map. */
+.game.side .roster, .game.side .roster.compact { width: var(--side-w); }
+.game.side .panel { left: auto; transform: none; right: calc(12px + var(--safe-right)); width: var(--side-w); bottom: auto; }
+.game.side .tools { right: auto; left: calc(70px + var(--safe-left)); flex-direction: row; }
+.game.side.short .tools { left: calc(12px + var(--safe-left)); bottom: calc(66px + var(--safe-bottom)); flex-direction: column; }
+.game.side .vs .num { font-size: 24px; }
+.game.side .panel .choice button { min-width: 0; flex: 1 1 auto; }
 /* Narrow portrait (phones): buttons in a row along the bottom, panel above them. */
 @media (max-width: 600px) and (orientation: portrait) {
   .tools { flex-direction: row; }

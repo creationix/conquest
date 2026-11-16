@@ -40,6 +40,7 @@ import { GOOD_LABELS, ICONS, STROKED, type IconName } from './icons.ts';
 import { MapRenderer, type Highlight } from './renderer.ts';
 import { showRules } from './rules-ui.ts';
 import type { Session } from './session.ts';
+import { canFullscreen, isFullscreen, onFullscreenChange, toggleFullscreen } from './pwa.ts';
 
 type ShipKind = Move['kind'];
 
@@ -130,10 +131,16 @@ export class GameScreen {
       'div.float.tools',
       h('button', { title: 'Zoom in', 'aria-label': 'Zoom in', onclick: () => this.renderer.zoomBy(1.4) }, icon('plus')),
       h('button', { title: 'Zoom out', 'aria-label': 'Zoom out', onclick: () => this.renderer.zoomBy(1 / 1.4) }, icon('minus')),
-      h('button', { title: 'Fit map', 'aria-label': 'Fit map', onclick: () => this.renderer.fit() }, icon('fit')),
+      h('button', { title: 'Fit the whole map', 'aria-label': 'Fit the whole map', onclick: () => this.renderer.fit() }, icon('fit')),
     );
+    if (canFullscreen()) {
+      const fs = h('button', { title: 'Full screen', 'aria-label': 'Full screen', onclick: toggleFullscreen }, icon('fullscreen'));
+      this.el.tools.appendChild(fs);
+      this.offFullscreen = onFullscreenChange(() => fs.replaceChildren(icon(isFullscreen() ? 'exitFullscreen' : 'fullscreen')));
+    }
     this.el.menu = h('div.float.menu-btn', h('button', { title: 'Menu', 'aria-label': 'Menu', onclick: () => this.openMenu() }, icon('menu')));
-    mount(root, h('div.screen.game', canvas, this.el.brand, this.el.roster, this.el.info, this.el.panel, this.el.tools, this.el.menu, this.el.toasts, this.el.overlay));
+    this.el.game = h('div.screen.game', canvas, this.el.brand, this.el.roster, this.el.info, this.el.panel, this.el.tools, this.el.menu, this.el.toasts, this.el.overlay);
+    mount(root, this.el.game);
     this.rosterCompact = window.innerWidth < 700 || window.innerHeight <= 520;
     this.renderer = new MapRenderer(canvas);
     this.renderer.onTap = (t) => this.tap(t);
@@ -147,7 +154,10 @@ export class GameScreen {
     this.render();
   }
 
+  private offFullscreen: () => void = () => {};
+
   destroy() {
+    this.offFullscreen();
     this.unsub();
     this.renderer.destroy();
     window.removeEventListener('resize', this.layout);
@@ -299,33 +309,57 @@ export class GameScreen {
   // -------------------------------------------------------------------------
   // Rendering
 
+  /**
+   * Place the HUD and frame the map. The frame depends only on the screen and
+   * the roster, never on the current prompt, so the map stays put while
+   * prompts come and go. Where there is room beside the map (tablets,
+   * landscape phones) prompts sit in a column on the right and never cover
+   * it; on portrait phones they sit along the bottom.
+   */
   private layout = () => {
-    // Keep the map clear of the HUD where possible.
-    const panel = this.el.panel.getBoundingClientRect();
-    const roster = this.el.roster.getBoundingClientRect();
-    const brand = this.el.brand.getBoundingClientRect();
+    const game = this.el.game;
+    const panel = this.el.panel;
+    const roster = this.el.roster;
     const w = window.innerWidth;
     const hgt = window.innerHeight;
     const short = hgt <= 520;
-    const panelShown = !this.el.panel.hidden && panel.height > 0;
-    // Toasts float just above the panel so they never hide the map's middle.
-    this.el.toasts.style.bottom = `${(panelShown ? hgt - panel.top : 70) + 10}px`;
-    this.el.toasts.style.left = '';
-    if (short) {
-      // Landscape phones: roster and panel stacked on the right, map on the left.
-      this.el.panel.style.maxHeight = `${hgt - roster.bottom - 20}px`;
-      this.el.toasts.style.bottom = '14px';
-      this.el.toasts.style.left = `${(panelShown ? panel.left : w) / 2}px`;
-      this.renderer.setInsets({ top: 8, right: panelShown ? w - panel.left + 4 : 70, bottom: 8, left: 64 });
-      return;
+    const narrowPortrait = w <= 600 && hgt > w;
+    const css = getComputedStyle(document.documentElement);
+    const safeTop = parseFloat(css.getPropertyValue('--safe-top')) || 0;
+    const safeRight = parseFloat(css.getPropertyValue('--safe-right')) || 0;
+    const brandBottom = safeTop + (w <= 700 || short ? 76 : 92);
+    const sideW = Math.round(short ? Math.min(360, w * 0.42) : Math.min(300, Math.max(240, w * 0.3)));
+    const side = short
+      ? { top: 8, right: sideW + 20 + safeRight, bottom: 8, left: 64 }
+      : { top: brandBottom + 6, right: sideW + 20 + safeRight, bottom: 62, left: 8 };
+    const rosterBottom = safeTop + 12 + roster.getBoundingClientRect().height;
+    const bottomH = (narrowPortrait ? 68 : 12) + Math.min(150, hgt * 0.2);
+    const bottomOptions = [
+      { top: Math.max(brandBottom, rosterBottom) + 6, right: 8, bottom: bottomH, left: 8 },
+      { top: brandBottom + 6, right: Math.min(270, w * 0.46) + 20, bottom: bottomH, left: 8 },
+    ];
+    const bestBottom = Math.max(...bottomOptions.map((o) => this.renderer.scaleFor(o)));
+    const useSide = !narrowPortrait && (short || this.renderer.scaleFor(side) >= bestBottom * 0.95);
+    game.classList.toggle('side', useSide);
+    game.classList.toggle('short', short);
+    game.style.setProperty('--side-w', sideW + 'px');
+    if (useSide) {
+      const top = roster.getBoundingClientRect().bottom + 8;
+      panel.style.top = top + 'px';
+      panel.style.maxHeight = `${hgt - top - 12}px`;
+      this.el.toasts.style.left = `${(side.left + w - side.right) / 2}px`;
+      this.el.toasts.style.bottom = `${side.bottom + 8}px`;
+      this.renderer.setInsets(side);
+    } else {
+      panel.style.top = '';
+      panel.style.maxHeight = '';
+      const rect = panel.getBoundingClientRect();
+      const shown = !panel.hidden && rect.height > 0;
+      // Toasts float just above the panel so they never hide the map's middle.
+      this.el.toasts.style.left = '';
+      this.el.toasts.style.bottom = `${(shown ? hgt - rect.top : 70) + 10}px`;
+      this.renderer.setInsets(bottomOptions);
     }
-    this.el.panel.style.maxHeight = '';
-    const bottom = panelShown ? hgt - panel.top + 8 : 70;
-    // Either keep the map below the roster, or beside it: whichever is bigger.
-    this.renderer.setInsets([
-      { top: Math.max(brand.bottom, roster.bottom) + 6, right: 8, bottom, left: 8 },
-      { top: brand.bottom + 6, right: w - roster.left + 8, bottom, left: 8 },
-    ]);
   };
 
   render() {
@@ -360,7 +394,7 @@ export class GameScreen {
     if (act) this.lastSeat = act.seat;
     const hl = this.renderPanel(act);
     this.renderer.setHighlight(hl);
-    requestAnimationFrame(this.layout);
+    this.layout();
   }
 
   private renderBrand() {
@@ -1307,8 +1341,8 @@ export class GameScreen {
             audioButton('sound'),
             audioButton('music'),
           ),
-          document.fullscreenEnabled
-            ? h('button', { onclick: () => (close(), document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {})) }, icon('fullscreen'), 'Full screen')
+          canFullscreen()
+            ? h('button', { onclick: () => (close(), toggleFullscreen()) }, icon(isFullscreen() ? 'exitFullscreen' : 'fullscreen'), isFullscreen() ? 'Leave full screen' : 'Full screen')
             : null,
           s.phase !== 'over'
             ? resignable.map((seat) =>
