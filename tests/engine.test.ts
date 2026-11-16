@@ -53,7 +53,8 @@ function custom(map: MapData, owners: number[], players = 3, over: Partial<Setti
     boats: [],
   }));
   s.players.forEach((p) => {
-    p.stockpile = -1;
+    // Everyone starts with a stockpile in their first territory.
+    p.stockpile = s.territories.findIndex((t) => t.owner === p.id);
     p.stock = emptyStock();
   });
   s.phase = 'conquest';
@@ -61,6 +62,7 @@ function custom(map: MapData, owners: number[], players = 3, over: Partial<Setti
   s.turn = 0;
   s.year = 2;
   s.conquest = { attacksLeft: 2, usedStockpileMove: false, plan: null };
+  s.placing = [];
   return s;
 }
 
@@ -125,6 +127,39 @@ test('capturing a stockpile takes the treasure', () => {
   assert.deepEqual(next.players[0].stock, { gold: 3, iron: 1, coal: 0, timber: 2 });
   assert.deepEqual(next.players[1].stock, emptyStock());
   assert.equal(next.players[1].stockpile, -1);
+});
+
+test('a looted lord places a new stockpile at the start of their next turn, for free', () => {
+  const map = textMap(['AABBCC']);
+  const s = custom(map, [0, 1, 1], 2, { chance: 'low' });
+  s.players[0].stockpile = 0;
+  s.players[1].stockpile = 1;
+  s.players[1].stock.gold = 5;
+  s.territories[0].weapon = true;
+  let next = apply(apply(s, { type: 'plan', player: 0, target: 1, force: null }), { type: 'attack', player: 0 });
+  assert.equal(next.players[0].stock.gold, 5);
+  assert.equal(next.players[1].stockpile, -1);
+  // The attacker carries on undisturbed, then ends the turn.
+  assert.deepEqual(actors(next), [0]);
+  next = apply(next, { type: 'done', player: 0 });
+  assert.equal(currentPlayer(next), 1);
+  assert.equal(tryApply(next, { type: 'done', player: 1 }).error, 'First choose where to keep your new stockpile');
+  next = apply(next, { type: 'placeStockpile', player: 1, territory: 2 });
+  assert.equal(next.players[1].stockpile, 2);
+  assert.equal(currentPlayer(next), 1, 'still their turn');
+  assert.equal(next.conquest.attacksLeft, 2, 'no attack used');
+});
+
+test('placing a new stockpile during shipment does not use the move', () => {
+  const map = textMap(['AABBCC']);
+  const s = custom(map, [0, 0, 1], 2, { chance: 'low' });
+  s.phase = 'shipment';
+  s.players[0].stockpile = -1;
+  let next = apply(s, { type: 'placeStockpile', player: 0, territory: 0 });
+  assert.equal(currentPlayer(next), 0);
+  next = apply(next, { type: 'ship', player: 0, move: { kind: 'stockpile', to: 1 } });
+  assert.equal(next.players[0].stockpile, 1);
+  assert.equal(currentPlayer(next), 1);
 });
 
 test('a horse rides in from two territories away', () => {
@@ -196,6 +231,10 @@ test('production: cities double, horses breed', () => {
   // End the year with both players finishing their conquests.
   let next = apply(s, { type: 'done', player: 0 });
   next = apply(next, { type: 'done', player: 1 });
+  // Year 2 opens with development: both lords look at their stockpiles and pass.
+  assert.equal(next.phase, 'development');
+  next = apply(next, { type: 'done', player: next.order[next.turn] });
+  next = apply(next, { type: 'done', player: next.order[next.turn] });
   assert.equal(next.year, 2);
   assert.equal(next.players[0].stock.gold, before + 2);
   assert.equal(next.territories[2].horse, true);
@@ -212,8 +251,10 @@ test('building costs follow the level', () => {
   next = apply(next, { type: 'build', player: 0, item: 'city', territory: 0, pay: 'gold' });
   assert.equal(next.territories[0].city, true);
   assert.equal(next.players[0].stock.gold, 0);
-  // Nothing affordable left: the turn passes automatically.
-  assert.notEqual(currentPlayer(next), 0);
+  // The turn lasts until the lord says they are done.
+  assert.equal(currentPlayer(next), 0);
+  next = apply(next, { type: 'done', player: 0 });
+  assert.equal(currentPlayer(next), 1, 'the next lord gets a turn even with nothing to spend');
 });
 
 test('trades swap goods when accepted', () => {

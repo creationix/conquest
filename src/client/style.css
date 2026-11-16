@@ -155,6 +155,10 @@ h2 { font-size: 19px; margin: 26px 0 10px; }
 .vs .mid { font-weight: 800; color: var(--muted); }
 .odds { margin-top: 8px; font-weight: 700; text-align: center; }
 .odds.good { color: var(--ok); } .odds.bad { color: var(--danger); } .odds.meh { color: var(--accent); }
+.stake { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; font-size: 13.5px; }
+.stake > span { display: inline-flex; align-items: center; gap: 4px; }
+.stake .ico { width: 16px; height: 16px; }
+.panel .choice button.quiet { border-color: var(--line); }
 .waiting { display: flex; align-items: center; gap: 10px; }
 .spinner { width: 20px; height: 20px; border: 2px solid #f5bd6930; border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; flex-shrink: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }

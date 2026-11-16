@@ -128,7 +128,7 @@ export function setupAudio() {
 // ---------------------------------------------------------------------------
 // Effects
 
-type Sfx = 'click' | 'tap' | 'select' | 'build' | 'coin' | 'win' | 'lose' | 'battle' | 'turn' | 'victory' | 'trade' | 'error';
+type Sfx = 'click' | 'tap' | 'select' | 'build' | 'coin' | 'win' | 'lose' | 'battle' | 'turn' | 'victory' | 'trade' | 'error' | 'plunder';
 
 function tone(freq: number, start: number, dur: number, type: OscillatorType, gain: number, slide = 0) {
   if (!ctx || !buses.sound) return;
@@ -206,6 +206,26 @@ export function play(sfx: Sfx) {
     case 'turn':
       tone(587, 0, 0.14, 'sine', 0.1);
       return tone(880, 0.12, 0.28, 'sine', 0.1);
+    case 'plunder': {
+      // A stockpile is looted: a dark brass stab, then a treasure chest's
+      // worth of coins spilling out and bouncing to rest.
+      for (const [f, g] of [[147, 0.07], [175, 0.06], [220, 0.05]] as const) {
+        tone(f, 0, 0.9, 'sawtooth', g * 0.6);
+        tone(f / 2, 0, 1.1, 'triangle', g);
+      }
+      hiss(0, 0.5, 0.14, 'lowpass', 500);
+      let at = 0.25;
+      for (let i = 0; i < 22; i++) {
+        const f = 1900 + ((i * 7919) % 13) * 110;
+        tone(f, at, 0.09, 'square', 0.022);
+        tone(f * 1.5, at + 0.005, 0.12, 'sine', 0.03);
+        hiss(at, 0.03, 0.05, 'highpass', 6000);
+        at += 0.035 + i * 0.004;
+      }
+      // The last coin spins down.
+      tone(2400, at, 0.5, 'sine', 0.035, 0.7);
+      return;
+    }
     case 'victory': {
       // A short fanfare.
       const notes = [523, 523, 523, 659, 784, 659, 784, 1047];

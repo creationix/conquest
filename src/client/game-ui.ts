@@ -17,6 +17,7 @@ import {
   freeBerths,
   info,
   neighbors,
+  needsStockpile,
   previewAttack,
   recipes,
   territoriesOf,
@@ -244,10 +245,11 @@ export class GameScreen {
           const a = this.player(e.attacker).name;
           const d = e.defender < 0 ? 'the locals' : this.player(e.defender).name;
           const odds = `${e.attack} vs ${e.defense}`;
-          setTimeout(() => play(e.won ? 'win' : 'lose'), 600);
+          if (!e.looted) setTimeout(() => play(e.won ? 'win' : 'lose'), 600);
           if (e.won) this.toast(`${a} conquered ${this.tname(e.target)} from ${d} (${odds})`, false, e.attacker);
           else this.toast(`${d} held ${this.tname(e.target)} against ${a} (${odds})`, false, e.defender);
           if (e.looted) {
+            setTimeout(() => play('plunder'), 700);
             const loot = GOODS.filter((g) => e.looted![g] > 0).map((g) => `${e.looted![g]} ${g}`).join(', ');
             this.toast(`${a} captured ${d}'s stockpile${loot ? ': ' + loot : ''}!`, false, e.attacker);
           }
@@ -288,6 +290,13 @@ export class GameScreen {
     const s = this.state;
     if (s.phase === 'over') return null;
     const local = (p: number) => p >= 0 && this.session.controls(p) && s.players[p].alive;
+    if (s.phase === 'production' && s.placing.length) {
+      const seat = s.placing.find(local);
+      return seat === undefined ? null : { seat, role: 'place' };
+    }
+    // A lord whose stockpile was captured places a new one first thing in their next turn.
+    const now = currentPlayer(s);
+    if (local(now) && needsStockpile(s, now)) return { seat: now, role: 'place' };
     if (s.phase === 'conquest' && s.conquest.plan) {
       const ally = s.conquest.plan.allies.find((a) => a.side === null && local(a.player));
       if (ally) return { seat: ally.player, role: 'ally' };
@@ -538,7 +547,7 @@ export class GameScreen {
         doing = 'is shipping';
         break;
       case 'conquest':
-        doing = s.conquest.plan ? 'is planning an attack' : 'is on the attack';
+        doing = needsStockpile(s, currentPlayer(s)) ? 'is choosing where to keep a new stockpile' : s.conquest.plan ? 'is planning an attack' : 'is on the attack';
         break;
     }
     const hl: Highlight = {};
@@ -581,14 +590,14 @@ export class GameScreen {
     const mine = new Set(territoriesOf(this.state, seat));
     const sel = this.ui.sel;
     const p = this.player(seat);
-    const lost = this.state.year > 1;
+    const lost = this.state.phase !== 'production' || this.state.year > 1;
     mount(
       panel,
       this.who(
         seat,
         `${p.name}, place your stockpile`,
         lost
-          ? 'Your old stockpile was captured. Choose where to keep a new one.'
+          ? 'Your stockpile was captured! Choose where to keep a new one. This is free: it does not use up your turn.'
           : 'Your stockpile holds all your gold, iron, coal and timber. If an enemy conquers that land, they take everything. Keep it safe!',
       ),
       sel !== null ? this.territoryLine(sel) : null,
@@ -690,6 +699,14 @@ export class GameScreen {
       panel,
       this.who(seat, `${p.name}, build`, h('p', 'Your stockpile: ', stockView(p.stock))),
       h('div.choice', choices),
+      can.length
+        ? null
+        : h(
+            'p',
+            p.stockpile < 0
+              ? 'Your stockpile was captured, so there is nothing to spend. Production comes next.'
+              : "You can't afford anything yet. Production comes next, so save up! A city is the way to win.",
+          ),
       detail,
       h(
         'div.actions',
@@ -1094,6 +1111,7 @@ export class GameScreen {
       panel,
       this.who(seat, `${title} · ${this.tname(target)}`, null),
       this.vsView(pv.attack, pv.defense, s.territories[target].owner, pv.possible ? null : 'Attack will fail!'),
+      this.stakeView(target),
       options.length > 1
         ? h(
             'div.choice',
@@ -1109,16 +1127,15 @@ export class GameScreen {
     return { selectable: targets, target, arrows };
   }
 
-  private vsView(att: number, def: number, defender: number, failure: string | null = null) {
-    const s = this.state;
-    const odds = failure ? 0 : s.settings.chance === 'low' ? (att >= def ? 1 : 0) : s.settings.chance === 'medium' ? (att > def ? 1 : att === def ? 0.5 : 0) : att / (att + def);
+  private vsView(att: number, def: number, defender: number, failure: string | null = null, attackLabel = 'Attack') {
+    const odds = failure ? 0 : this.odds(att, def);
     const label = failure ?? (odds >= 1 ? 'Victory is certain' : odds <= 0 ? 'Attack will fail!' : `${Math.round(odds * 100)}% chance to win`);
     const cls = odds >= 0.75 ? 'good' : odds <= 0.35 ? 'bad' : 'meh';
     return h(
       'div',
       h(
         'div.vs',
-        h('div.side', h('div.num', String(att)), h('div.lbl', 'Attack')),
+        h('div.side', h('div.num', String(att)), h('div.lbl', attackLabel)),
         h('div.mid', 'vs'),
         h('div.side', h('div.num', String(def)), h('div.lbl', defender < 0 ? 'Locals' : this.player(defender).name)),
       ),
@@ -1146,21 +1163,76 @@ export class GameScreen {
     const attacker = currentPlayer(s);
     const entry = plan.allies.find((a) => a.player === seat)!;
     const p = this.player(seat);
+    const attName = this.player(attacker).name;
     const defName = plan.defender < 0 ? 'the locals' : this.player(plan.defender).name;
     const pv = previewAttack(s, attacker, plan.target, plan.force);
+    // Totals so far, counting neighbors who already chose.
+    let att = pv.attack;
+    let def = pv.defense;
+    for (const a of plan.allies) {
+      if (a.side === 'attacker') att += a.strength;
+      if (a.side === 'defender') def += a.strength;
+    }
+    const outcome = (a: number, d: number) => {
+      const odds = this.odds(a, d);
+      const verdict = odds >= 1 ? `${attName} wins` : odds <= 0 ? `${defName === 'the locals' ? 'The locals hold' : defName + ' holds'}` : `${Math.round(odds * 100)}% for ${attName}`;
+      return `${a} vs ${d} · ${verdict}`;
+    };
+    const choice = (side: 'attacker' | 'defender' | 'neutral', label: string, a: number, d: number, cls = '') =>
+      h('button', { class: cls, onclick: () => this.act({ type: 'ally', player: seat, side }) }, h('b', label), h('small', outcome(a, d)));
+    const undecided = plan.allies.filter((a) => a.side === null && a.player !== seat).map((a) => this.player(a.player).name);
     mount(
       panel,
-      this.who(seat, `${p.name}, choose a side`, `${this.player(attacker).name} is attacking ${defName} in ${this.tname(plan.target)}. Your nearby forces add ${entry.strength} to whichever side you join.`),
-      this.vsView(pv.attack, pv.defense, plan.defender),
+      this.who(seat, `${p.name}, choose a side`),
       h(
-        'div.actions',
-        h('button', { onclick: () => this.act({ type: 'ally', player: seat, side: 'attacker' }) }, `Help ${this.player(attacker).name}`),
-        h('button', { onclick: () => this.act({ type: 'ally', player: seat, side: 'defender' }) }, `Help ${defName}`),
-        h('span.spacer'),
-        h('button.quiet', { onclick: () => this.act({ type: 'ally', player: seat, side: 'neutral' }) }, 'Stay out'),
+        'p',
+        h('b', { style: { color: this.color(attacker).fill } }, attName),
+        ' is attacking ',
+        h('b', { style: { color: 'var(--text)' } }, this.tname(plan.target)),
+        plan.defender < 0 ? ', unclaimed land' : [', held by ', h('b', { style: { color: this.color(plan.defender).fill } }, defName)],
+        '. It is outlined in red on the map.',
       ),
+      this.stakeView(plan.target),
+      h('p', `Your lands next to it add `, h('b', { style: { color: 'var(--text)' } }, `+${entry.strength}`), ' to whichever side you join.'),
+      this.vsView(att, def, plan.defender, null, attName),
+      h(
+        'div.choice',
+        choice('attacker', `Help ${attName}`, att + entry.strength, def),
+        choice('defender', `Help ${defName === 'the locals' ? 'the locals' : defName}`, att, def + entry.strength),
+        choice('neutral', 'Stay out', att, def, 'quiet'),
+      ),
+      undecided.length ? h('p', `Also deciding: ${undecided.join(', ')}.`) : null,
     );
     return { target: plan.target, arrows: plan.force ? [{ from: plan.force.from, to: plan.target, color: this.color(attacker).fill }] : [] };
+  }
+
+  /** What changes hands if a territory falls. */
+  private stakeView(t: number) {
+    const s = this.state;
+    const ts = s.territories[t];
+    const items: (HTMLElement | string)[] = [];
+    const chip = (ico: HTMLElement | SVGElement, text: string) => h('span', ico, text);
+    const siteNames: Record<string, string> = { gold: 'Gold mine', iron: 'Iron mine', coal: 'Coal mine', timber: 'Timber', horses: 'Pasture' };
+    if (ts.site) items.push(chip(siteIcon(ts.site), siteNames[ts.site]));
+    if (ts.city) items.push(chip(icon('city'), 'City'));
+    if (ts.weapon) items.push(chip(icon('weapon'), 'Weapon'));
+    if (ts.horse) items.push(chip(icon('horse'), 'Horse'));
+    if (ts.boats.length) items.push(chip(icon('boat'), ts.boats.length > 1 ? `${ts.boats.length} boats` : 'Boat'));
+    if (ts.owner >= 0 && s.players[ts.owner].stockpile === t) {
+      const st = s.players[ts.owner].stock;
+      const total = GOODS.reduce((n, g) => n + st[g], 0);
+      items.push(h('span', icon('stockpile'), h('b', { style: { color: 'var(--accent)' } }, 'Stockpile'), total ? [' (', stockView(st, true), ')'] : ' (empty)'));
+    }
+    return h(
+      'div.stake',
+      h('span.muted', 'At stake:'),
+      items.length ? items : h('span', 'just the land itself'),
+    );
+  }
+
+  private odds(att: number, def: number) {
+    const c = this.state.settings.chance;
+    return c === 'low' ? (att >= def ? 1 : 0) : c === 'medium' ? (att > def ? 1 : att === def ? 0.5 : 0) : att / (att + def);
   }
 
   // -------------------------------------------------------------------------
@@ -1266,7 +1338,9 @@ export class GameScreen {
       role === 'ally' && plan
         ? `${this.player(currentPlayer(s)).name} is attacking ${this.tname(plan.target)} and needs your answer.`
         : role === 'place'
-          ? 'Time to place your stockpile.'
+          ? s.phase === 'production'
+            ? 'Time to place your stockpile.'
+            : 'Your stockpile was captured. Choose a new home for it, then take your turn.'
           : `It's your turn: ${PHASE_NAMES[s.phase].toLowerCase()}.`;
     this.el.overlay.className = 'overlay';
     this.el.overlay.hidden = false;

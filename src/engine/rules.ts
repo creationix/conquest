@@ -162,6 +162,16 @@ export function actors(s: GameState): number[] {
   }
 }
 
+/**
+ * A lord whose stockpile was captured places a new one at the start of their
+ * next turn. It is free: it does not use up a move or an attack.
+ */
+export function needsStockpile(s: GameState, p: number): boolean {
+  if (s.phase !== 'development' && s.phase !== 'shipment' && s.phase !== 'conquest') return false;
+  const player = s.players[p];
+  return !!player && player.alive && player.stockpile < 0 && currentPlayer(s) === p && territoriesOf(s, p).length > 0;
+}
+
 export function territoriesOf(s: GameState, p: number): number[] {
   const out: number[] = [];
   s.territories.forEach((t, i) => {
@@ -373,16 +383,9 @@ function beginPhase(s: GameState, phase: Phase): void {
   }
 }
 
+/** Every living lord gets a development turn, even with nothing to spend. */
 function startDevelopmentTurn(s: GameState, from: number): void {
-  for (let i = from; i < s.order.length; i++) {
-    const p = s.order[i];
-    if (!s.players[p].alive) continue;
-    if (affordable(s, p).length) {
-      s.turn = i;
-      return;
-    }
-  }
-  nextPhase(s);
+  if (!seekTurn(s, from)) nextPhase(s);
 }
 
 function nextPhase(s: GameState): void {
@@ -760,6 +763,7 @@ export function apply(state: GameState, action: Action): GameState {
   }
   if (!player.alive) fail('You are out of the game');
   if (!actors(s).includes(p)) fail('Not your turn');
+  if (needsStockpile(s, p) && action.type !== 'placeStockpile') fail('First choose where to keep your new stockpile');
 
   switch (action.type) {
     case 'pick': {
@@ -778,12 +782,14 @@ export function apply(state: GameState, action: Action): GameState {
       break;
     }
     case 'placeStockpile': {
-      if (s.phase !== 'production') fail('Stockpiles are placed during production');
+      const midTurn = needsStockpile(s, p);
+      if (!midTurn && !(s.phase === 'production' && s.placing.includes(p))) fail('You already have a stockpile');
       if (!owns(s, p, action.territory)) fail('Choose one of your territories');
       player.stockpile = action.territory;
       s.placing = s.placing.filter((x) => x !== p);
       emit(s, { kind: 'stockpile', player: p, territory: action.territory });
-      if (!s.placing.length) {
+      // Mid-turn placement is free: the turn simply carries on.
+      if (s.phase === 'production' && !s.placing.length) {
         produce(s);
         nextPhase(s);
       }
@@ -804,7 +810,6 @@ export function apply(state: GameState, action: Action): GameState {
       else t.city = true;
       for (const g of GOODS) player.stock[g] -= recipe!.cost[g];
       emit(s, { kind: 'build', player: p, item: action.item, territory: action.territory, sea });
-      if (!affordable(s, p).length) advanceTurn(s);
       break;
     }
     case 'done': {

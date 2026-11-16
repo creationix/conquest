@@ -13,6 +13,7 @@ import {
   defense,
   freeBerths,
   info,
+  needsStockpile,
   neighbors,
   previewAttack,
   recipes,
@@ -58,6 +59,7 @@ function leader(s: GameState): number {
 export function chooseAction(s: GameState, p: number): Action | null {
   if (!actors(s).includes(p)) return null;
   const tryIt = (a: Action | null) => (a && !tryApply(s, a).error ? a : null);
+  if (s.placing.includes(p) || needsStockpile(s, p)) return { type: 'placeStockpile', player: p, territory: safest(s, p) };
   switch (s.phase) {
     case 'select':
       return pick(s, p);
