@@ -248,11 +248,22 @@ dialog::backdrop { background: #04131dbb; }
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-content: flex-start; gap: 4px; padding: 5px; }
 .game.topbar .prow { grid-template-columns: 26px auto auto; }
 .game.topbar .prow .goods { grid-column: 1 / 4; }
-/* Narrow portrait (phones): buttons in a row along the bottom, panel above them. */
-@media (max-width: 600px) and (orientation: portrait) {
-  .tools { flex-direction: row; }
-  .panel { bottom: calc(68px + var(--safe-bottom)); max-height: 42vh; }
-}
+/* Phones in portrait (class set by GameScreen.layout): one slim top row with
+   the menu, phase and players; Fit/fullscreen as a small stack above the
+   prompt; the prompt at the very bottom. */
+.brand .yr { display: none; }
+.game.phone .menu-btn { top: calc(10px + var(--safe-top)); bottom: auto; left: calc(10px + var(--safe-left)); padding: 3px; }
+.game.phone .menu-btn button { min-height: 38px; min-width: 38px; padding: 6px; }
+.game.phone .brand { left: calc(62px + var(--safe-left)); top: calc(10px + var(--safe-top)); padding: 6px 10px 7px; }
+.game.phone .brand .name, .game.phone .brand .year { display: none; }
+.game.phone .brand .phase { font-size: 16px; }
+.game.phone .brand .yr { display: inline; font-size: 12px; font-weight: 500; color: var(--muted); }
+.game.phone .brand .track { margin-top: 4px; }
+.game.phone .roster, .game.phone .roster.compact { top: var(--roster-top, calc(10px + var(--safe-top))); }
+.game.phone .tools { flex-direction: column; right: calc(8px + var(--safe-right)); bottom: var(--tools-bottom, 12px); padding: 3px; gap: 2px; }
+.game.phone .tools button { min-height: 38px; min-width: 38px; padding: 6px; }
+.game.phone .tools .zoom { display: none; }
+.game.phone .panel { bottom: calc(10px + var(--safe-bottom)); max-height: 55vh; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
@@ -293,3 +304,31 @@ dialog::backdrop { background: #04131dbb; }
 .game.column .panel .actions { flex-direction: column-reverse; align-items: stretch; gap: 6px; }
 .game.column .panel .actions .spacer { display: none; }
 .game.column .panel .actions > span.muted { order: 1; }
+/* Fold the prompt (top-bar layout, where it can sit over the map). */
+.panel-toggle { display: none; position: absolute; top: 6px; right: 6px; min-height: 36px; min-width: 36px; padding: 0;
+  border: 0; border-radius: 10px; background: transparent; color: var(--muted); }
+.game.topbar .panel-toggle { display: inline-flex; }
+.game.topbar .panel .who, .game.topbar .panel .waiting { padding-right: 34px; }
+.game.topbar .panel.collapsed > :not(:first-child):not(.actions):not(.panel-toggle) { display: none; }
+.game.topbar .panel.collapsed > :first-child > .who ~ *, .game.topbar .panel.collapsed .waiting p { display: none; }
+/* Phones: compact prompts and messages that keep clear of the map buttons. */
+.game.phone .panel .long { display: none; }
+.game.phone .vs { margin-top: 6px; gap: 6px; }
+.game.phone .vs .side { padding: 4px; }
+.game.phone .vs .num { font-size: 20px; }
+.game.phone .odds { margin-top: 4px; }
+.game.phone .panel .choice.one-row button b { font-size: 13px; }
+.game.phone .panel .choice.one-row button small { font-size: 10px; }
+.game.phone .toasts { width: calc(100vw - 80px); transform: translateX(calc(-50% - 28px)); }
+/* Collapsed players: just a color swatch and city count, in every layout. */
+.roster.compact .pname, .roster.compact .goods { display: none !important; }
+.roster.compact .prow { grid-template-columns: 26px auto !important; gap: 6px; }
+.game.column .roster.compact { display: flex; flex-wrap: wrap; gap: 4px; }
+.game.column .roster.compact .prow { flex: 0 0 auto; }
+.game.bar .roster.compact { right: auto; }
+.game.bar .roster.compact .prow { flex: 0 0 auto; }
+.roster-toggle { min-height: 30px; min-width: 30px; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--muted); align-self: center; }
+.roster:not(.compact) .roster-toggle { display: block; margin: 0 0 0 auto; }
+.game.bar .roster:not(.compact) .roster-toggle, .game.topbar .roster .roster-toggle { margin: 0; flex: 0 0 auto; }
+.game.short .roster.compact { display: flex; flex-wrap: wrap; gap: 4px; }
+.game.short .roster.compact .prow { flex: 0 0 auto; }

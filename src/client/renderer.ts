@@ -155,13 +155,14 @@ export class MapRenderer {
     }
     const changed = JSON.stringify(insets) !== JSON.stringify(this.insets);
     this.insets = insets;
-    // Refit as the HUD changes size, unless someone zoomed in to look closer.
-    if (changed && !this.zoomed) this.fit(true);
+    // Refit as the HUD changes size, unless someone moved the map themselves.
+    if (changed && !this.userMoved) this.fit(true);
   }
 
   /** Zoom so the whole map fits the area not covered by the HUD. */
   fit(instant = false) {
     if (!this.map) return;
+    this.userMoved = false;
     const { top, right, bottom, left } = this.insets;
     const w = Math.max(100, this.width - left - right);
     const h = Math.max(100, this.height - top - bottom);
@@ -198,6 +199,9 @@ export class MapRenderer {
   zoomBy(factor: number) {
     this.zoomAt(this.width / 2, this.height / 2, factor);
   }
+
+  /** Set when someone pans or zooms; Fit clears it. */
+  private userMoved = false;
 
   get zoomed() {
     return this.cam.scale > this.fitScale * 1.05;
@@ -291,6 +295,7 @@ export class MapRenderer {
   }
 
   private zoomAt(px: number, py: number, factor: number) {
+    this.userMoved = true;
     const min = this.fitScale;
     const max = this.fitScale * 4;
     const scale = Math.min(max, Math.max(min, this.cam.scale * factor));
@@ -310,11 +315,12 @@ export class MapRenderer {
     if (!this.map) return;
     const w = this.viewW * this.cam.scale;
     const h = this.viewH * this.cam.scale;
-    const pad = 40;
-    if (w <= this.width) this.cam.x = Math.min(Math.max(this.cam.x, 0), this.width - w);
-    else this.cam.x = Math.min(pad, Math.max(this.width - w - pad, this.cam.x));
-    if (h <= this.height) this.cam.y = Math.min(Math.max(this.cam.y, 0), this.height - h);
-    else this.cam.y = Math.min(pad, Math.max(this.height - h - pad, this.cam.y));
+    // The map can be dragged well past the screen edges, so any corner can be
+    // brought out from under the HUD; a third of it always stays in view.
+    const keepX = Math.min(w * 0.33, this.width * 0.5);
+    const keepY = Math.min(h * 0.33, this.height * 0.5);
+    this.cam.x = Math.min(this.width - keepX, Math.max(keepX - w, this.cam.x));
+    this.cam.y = Math.min(this.height - keepY, Math.max(keepY - h, this.cam.y));
   }
 
   // -------------------------------------------------------------------------
@@ -348,7 +354,9 @@ export class MapRenderer {
       if (Math.hypot(p.x - ptr.sx, p.y - ptr.sy) > 10) this.moved = true;
       if (this.pointers.size >= 2 && this.pinch) {
         this.updatePinch();
-      } else if (this.pointers.size === 1 && this.moved && this.zoomed) {
+      } else if (this.pointers.size === 1 && this.moved) {
+        // Drag the map at any zoom, e.g. out from under a prompt.
+        this.userMoved = true;
         this.cam.x += dx;
         this.cam.y += dy;
         this.clampCamera();
@@ -393,6 +401,7 @@ export class MapRenderer {
   }
 
   private updatePinch() {
+    this.userMoved = true;
     const pinch = this.pinch!;
     const [a, b] = [...this.pointers.values()];
     const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;

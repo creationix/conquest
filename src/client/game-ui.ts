@@ -131,8 +131,8 @@ export class GameScreen {
     this.el.overlay = h('div', { hidden: true });
     this.el.tools = h(
       'div.float.tools',
-      h('button', { title: 'Zoom in', 'aria-label': 'Zoom in', onclick: () => this.renderer.zoomBy(1.4) }, icon('plus')),
-      h('button', { title: 'Zoom out', 'aria-label': 'Zoom out', onclick: () => this.renderer.zoomBy(1 / 1.4) }, icon('minus')),
+      h('button.zoom', { title: 'Zoom in', 'aria-label': 'Zoom in', onclick: () => this.renderer.zoomBy(1.4) }, icon('plus')),
+      h('button.zoom', { title: 'Zoom out', 'aria-label': 'Zoom out', onclick: () => this.renderer.zoomBy(1 / 1.4) }, icon('minus')),
       h('button', { title: 'Fit the whole map', 'aria-label': 'Fit the whole map', onclick: () => this.renderer.fit() }, icon('fit')),
     );
     if (canFullscreen()) {
@@ -143,7 +143,14 @@ export class GameScreen {
     this.el.menu = h('div.float.menu-btn', h('button', { title: 'Menu', 'aria-label': 'Menu', onclick: () => this.openMenu() }, icon('menu')));
     this.el.game = h('div.screen.game', canvas, this.el.brand, this.el.roster, this.el.info, this.el.panel, this.el.tools, this.el.menu, this.el.toasts, this.el.overlay);
     mount(root, this.el.game);
-    this.rosterCompact = window.innerWidth < 700 || window.innerHeight <= 520;
+    // Players start compact on small screens, unless this device chose otherwise.
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem('conquest-roster');
+    } catch {
+      /* ignore */
+    }
+    this.rosterCompact = saved ? saved === 'compact' : window.innerWidth < 700 || window.innerHeight <= 520;
     this.renderer = new MapRenderer(canvas);
     this.renderer.onTap = (t, cell) => this.tap(t, cell);
     this.session.onError = (msg) => this.toast(msg, true);
@@ -331,6 +338,29 @@ export class GameScreen {
   // -------------------------------------------------------------------------
   // Rendering
 
+  /** On phones the prompt can be folded down to its title and buttons to see the map. */
+  private panelCollapsed = false;
+
+  private addPanelToggle() {
+    const collapsed = this.panelCollapsed;
+    this.el.panel.classList.toggle('collapsed', collapsed);
+    this.el.panel.appendChild(
+      h(
+        'button.panel-toggle',
+        {
+          title: collapsed ? 'Show the whole prompt' : 'Fold the prompt to see the map',
+          'aria-label': collapsed ? 'Show the whole prompt' : 'Fold the prompt to see the map',
+          'aria-expanded': String(!collapsed),
+          onclick: () => {
+            this.panelCollapsed = !this.panelCollapsed;
+            this.render();
+          },
+        },
+        icon(collapsed ? 'chevronUp' : 'chevronDown'),
+      ),
+    );
+  }
+
   private layoutKey = '';
   private layoutMode: 'column' | 'bar' | 'topbar' | 'short' = 'topbar';
 
@@ -388,7 +418,7 @@ export class GameScreen {
     const narrowPortrait = w <= 600 && hgt > w;
     const css = getComputedStyle(document.documentElement);
     const safeRight = parseFloat(css.getPropertyValue('--safe-right')) || 0;
-    game.classList.remove('column', 'bar', 'topbar', 'short', 'slim', 'tiny');
+    game.classList.remove('column', 'bar', 'topbar', 'short', 'slim', 'tiny', 'phone');
     // The bar layout is the column layout with players moved to the bottom.
     if (mode === 'bar') game.classList.add('column', 'bar');
     else game.classList.add(mode);
@@ -401,7 +431,7 @@ export class GameScreen {
       // Narrow chips drop the resource counts, then the names (tap for more).
       const perChip = barWidth / this.state.players.length;
       if (!this.rosterCompact && perChip < 235) game.classList.add('slim');
-      if (this.rosterCompact || perChip < 125) game.classList.add('slim', 'tiny');
+      if (!this.rosterCompact && perChip < 125) game.classList.add('slim', 'tiny');
       const top = brand.getBoundingClientRect().bottom + 8;
       game.style.setProperty('--panel-top', top + 'px');
       game.style.setProperty('--panel-max', `${hgt - top - 72}px`);
@@ -436,16 +466,29 @@ export class GameScreen {
       toasts.style.bottom = '14px';
       return insets;
     }
-    // Top bar.
+    // Top bar (phones in portrait get a slimmer version of it).
+    game.classList.toggle('phone', narrowPortrait);
     const b = brand.getBoundingClientRect();
     game.style.setProperty('--roster-left', b.right + 8 + 'px');
-    const r = roster.getBoundingClientRect();
-    const bottom = (narrowPortrait ? 68 : 12) + Math.min(150, hgt * 0.2);
+    game.style.removeProperty('--roster-top');
+    let r = roster.getBoundingClientRect();
+    if (narrowPortrait && r.height > b.height + 12) {
+      // Too many players to fit beside the title: give them a full-width row below it.
+      const safeLeft = parseFloat(css.getPropertyValue('--safe-left')) || 0;
+      game.style.setProperty('--roster-left', 10 + safeLeft + 'px');
+      game.style.setProperty('--roster-top', b.bottom + 6 + 'px');
+      r = roster.getBoundingClientRect();
+    }
+    // Phones reserve room for a typical (or folded) prompt; a taller prompt
+    // may cover the map's edge, but it folds and the map drags.
+    const bottom = narrowPortrait ? 10 + Math.min(140, hgt * 0.2) : 12 + Math.min(150, hgt * 0.2);
     const rect = panel.getBoundingClientRect();
     const shown = !panel.hidden && rect.height > 0;
-    // Toasts float just above the panel so they never hide the map's middle.
+    // Toasts (and the phone map buttons) float just above the prompt.
     toasts.style.bottom = `${(shown ? hgt - rect.top : 70) + 10}px`;
-    return { top: Math.max(b.bottom, r.bottom) + 6, right: 8, bottom, left: 8 };
+    game.style.setProperty('--tools-bottom', `${(shown ? hgt - rect.top : 10) + 8}px`);
+    const top = Math.max(b.bottom, r.bottom, this.el.menu.getBoundingClientRect().bottom) + 6;
+    return { top, right: 8, bottom, left: 8 };
   }
 
   render() {
@@ -480,6 +523,7 @@ export class GameScreen {
     this.el.overlay.hidden = true;
     if (act) this.lastSeat = act.seat;
     const hl = this.renderPanel(act);
+    this.addPanelToggle();
     this.renderer.setHighlight(hl);
     this.layout();
   }
@@ -492,7 +536,7 @@ export class GameScreen {
     mount(
       this.el.brand,
       h('div.name', 'LORDS OF CONQUEST'),
-      h('div.phase', PHASE_NAMES[s.phase]),
+      h('div.phase', PHASE_NAMES[s.phase], s.phase === 'select' || s.phase === 'over' ? null : h('span.yr', ` · Year ${s.year}`)),
       h('div.year', s.phase === 'select' ? 'Claim your lands' : `Year ${s.year} · first to ${s.settings.citiesToWin} cities`),
       s.phase === 'select' || s.phase === 'over'
         ? null
@@ -502,6 +546,11 @@ export class GameScreen {
 
   private toggleRoster() {
     this.rosterCompact = !this.rosterCompact;
+    try {
+      localStorage.setItem('conquest-roster', this.rosterCompact ? 'compact' : 'full');
+    } catch {
+      /* ignore */
+    }
     this.render();
   }
 
@@ -533,7 +582,17 @@ export class GameScreen {
         ),
       );
     });
-    mount(this.el.roster, rows);
+    // A visible handle for the collapse (the whole list also toggles on tap).
+    const toggle = h(
+      'button.roster-toggle',
+      {
+        title: this.rosterCompact ? 'Show names and resources' : 'Show only colors and cities',
+        'aria-label': this.rosterCompact ? 'Show names and resources' : 'Show only colors and cities',
+        'aria-expanded': String(!this.rosterCompact),
+      },
+      icon(this.rosterCompact ? 'chevronDown' : 'chevronUp'),
+    );
+    mount(this.el.roster, rows, toggle);
   }
 
   private setInfo(t: number | null) {
@@ -1326,13 +1385,14 @@ export class GameScreen {
         ' is attacking ',
         h('b', { style: { color: 'var(--text)' } }, this.tname(plan.target)),
         plan.defender < 0 ? ', unclaimed land' : [', held by ', h('b', { style: { color: this.color(plan.defender).fill } }, defName)],
-        '. It is outlined in red on the map.',
+        '.',
+        h('span.long', ' It is outlined in red on the map.'),
       ),
       this.stakeView(plan.target),
       h('p', `Your lands next to it add `, h('b', { style: { color: 'var(--text)' } }, `+${entry.strength}`), ' to whichever side you join.'),
       this.vsView(att, def, plan.defender, null, attName),
       h(
-        'div.choice',
+        'div.choice.one-row',
         choice('attacker', `Help ${attName}`, att + entry.strength, def),
         choice('defender', `Help ${defName === 'the locals' ? 'the locals' : defName}`, att, def + entry.strength),
         choice('neutral', 'Stay out', att, def, 'quiet'),

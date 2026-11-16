@@ -28,6 +28,8 @@ export const ICONS = {
   fullscreen: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5',
   exitFullscreen: 'M3 8h5V3m8 0v5h5M3 16h5v5m13-5h-5v5',
   download: 'M12 3v12m-5-5 5 5 5-5M4 20h16',
+  chevronUp: 'm6 15 6-6 6 6',
+  chevronDown: 'm6 9 6 6 6-6',
   trade: 'M4 8h13l-3.5-3.5M20 16H7l3.5 3.5',
   music: 'M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm11-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
 } as const;
@@ -35,7 +37,7 @@ export const ICONS = {
 export type IconName = keyof typeof ICONS;
 
 /** Icons drawn with strokes instead of fills. */
-export const STROKED = new Set<IconName>(['menu', 'close', 'fit', 'plus', 'minus', 'computer', 'device', 'check', 'scroll', 'sound', 'mute', 'fullscreen', 'trade', 'music', 'exitFullscreen', 'download']);
+export const STROKED = new Set<IconName>(['menu', 'close', 'fit', 'plus', 'minus', 'computer', 'device', 'check', 'scroll', 'sound', 'mute', 'fullscreen', 'trade', 'music', 'exitFullscreen', 'download', 'chevronUp', 'chevronDown']);
 
 const cache = new Map<string, Path2D>();
 export function iconPath(name: IconName): Path2D {
