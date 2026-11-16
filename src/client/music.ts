@@ -1,357 +1,419 @@
-// Original, procedurally synthesized music for Conquest: modal "medieval"
-// tunes for peaceful phases and a drum-driven march for conquest. No audio
-// files; everything is scheduled ahead on the Web Audio clock.
+// Generative background music for Conquest.
+//
+// Calm by design: a warm pad, a soft harp, an occasional low flute melody and a
+// gentle bass, all in a reverb "hall". Nothing loops verbatim: every few bars
+// the music moves to a new section (pad alone, harp, melody, a breath of
+// silence), progressions and keys change, and melodies are made of short
+// call-and-response phrases with plenty of rests. During conquest the same
+// ensemble turns darker and slightly faster over a soft low drum.
+// No recordings: everything is scheduled ahead on the Web Audio clock.
 
 const hz = (note: number) => 440 * Math.pow(2, (note - 69) / 12);
-const bar = (text: string) => text.trim().split(/\s+/).map((t) => (t === '-' ? null : Number(t)));
-const bars = (text: string) => text.split('|').map(bar);
-const chords = (text: string) => text.split('|').map((c) => c.trim().split(/\s+/).map(Number));
-const rhythm = (text: string) => [...text.replace(/\s/g, '')].map((c) => (c === '-' ? 0 : Number(c)));
 
-type Voice = 'recorder' | 'lute' | 'harp' | 'brass';
+export type Mood = 'peace' | 'war';
 
-interface Song {
-  title: string;
-  bpm: number;
-  voice: Voice;
-  /** One chord per bar for the A and B sections (4 bars each). */
-  chordsA: number[][];
-  chordsB: number[][];
-  a: (number | null)[][];
-  b: (number | null)[][];
-  /** Per eighth-note step (8 per bar): drum accents 0-9. */
-  drum: number[];
-  tabor: number[];
-  jingle: number[];
-  /** Bass pattern: digits pick chord tones (1 = root), 0 = rest. */
-  bass: number[];
-  drone: boolean;
+interface Key {
+  root: number;
+  scale: number[];
 }
 
-// Notes are MIDI numbers; each bar is eight eighth notes. Form: A A B A.
-const SONGS: Record<string, Song> = {
-  road: {
-    title: "The King's Road",
-    bpm: 100,
-    voice: 'recorder',
-    chordsA: chords('50 57 62|48 55 60|46 53 58|45 52 57'),
-    chordsB: chords('41 48 53|48 55 60|50 57 62|45 52 57'),
-    a: bars('74 - 72 74 77 - 76 74|72 - 69 72 76 - 74 72|70 - 74 77 - 74 70 -|69 72 76 - 74 72 69 -'),
-    b: bars('77 - 81 - 79 77 76 -|76 74 72 - 76 - 79 -|81 - 79 77 76 74 72 -|74 - 73 - 69 - - -'),
-    drum: rhythm('7--- 5-3-'),
-    tabor: rhythm('--4- --4-'),
-    jingle: rhythm('---3 ---3'),
-    bass: rhythm('1--- 3---'),
-    drone: true,
-  },
-  fair: {
-    title: 'Harvest Fair',
-    bpm: 120,
-    voice: 'lute',
-    chordsA: chords('43 50 55 59|41 48 53 57|48 52 55 60|43 50 55 59'),
-    chordsB: chords('43 50 55 59|41 48 53 57|48 52 55 60|50 54 57 62'),
-    a: bars('79 - 81 83 - 81 79 77|77 - 76 74 72 - 74 -|72 76 79 - 76 72 74 76|79 - - 74 79 - - -'),
-    b: bars('83 - 84 86 - 84 83 81|81 79 77 - 76 77 79 -|76 - 79 84 - 83 81 79|74 77 79 - 81 - 78 -'),
-    drum: rhythm('8--5 6--5'),
-    tabor: rhythm('-3-- -3-4'),
-    jingle: rhythm('-2-2 -2-2'),
-    bass: rhythm('1-3- 2-3-'),
-    drone: false,
-  },
-  watch: {
-    title: 'Night Watch',
-    bpm: 84,
-    voice: 'harp',
-    chordsA: chords('45 52 57 60|41 48 53 57|43 50 55 59|40 47 52 56'),
-    chordsB: chords('45 52 57 60|41 48 53 57|43 50 55 59|40 47 52 56'),
-    a: bars('76 - - 72 69 - 72 -|77 - 76 - 72 - - -|74 - 71 - 67 71 74 -|71 - - 68 64 - - -'),
-    b: bars('81 - 79 76 - 72 76 -|77 - 81 - 84 - 81 -|79 - 74 71 - 74 79 -|76 - 75 - 76 - - -'),
-    drum: rhythm('6--- ----'),
-    tabor: rhythm('---- 3---'),
-    jingle: rhythm('---- ----'),
-    bass: rhythm('1--- ----'),
-    drone: true,
-  },
-  arms: {
-    title: 'To Arms!',
-    bpm: 128,
-    voice: 'brass',
-    chordsA: chords('50 57 62 65|46 53 58 62|48 55 60 64|45 52 57 61'),
-    chordsB: chords('46 53 58 62|50 57 62 65|48 55 60 64|45 52 57 61'),
-    a: bars('74 74 - 77 76 74 - 72|70 - 74 - 77 - 74 -|72 72 - 76 74 72 - 76|73 - 76 - 81 - 76 73'),
-    b: bars('82 - 81 - 77 - 74 77|81 - 77 - 74 - 77 81|79 - 76 - 72 - 76 79|81 - 79 77 76 - 73 -'),
-    drum: rhythm('9-5- 8-56'),
-    tabor: rhythm('-4-4 -446'),
-    jingle: rhythm('3-3- 3-3-'),
-    bass: rhythm('1-1- 1-21'),
-    drone: false,
-  },
+const DORIAN = [0, 2, 3, 5, 7, 9, 10];
+const MIXOLYDIAN = [0, 2, 4, 5, 7, 9, 10];
+const LYDIAN = [0, 2, 4, 6, 7, 9, 11];
+const IONIAN = [0, 2, 4, 5, 7, 9, 11];
+const AEOLIAN = [0, 2, 3, 5, 7, 8, 10];
+const PHRYGIAN = [0, 1, 3, 5, 7, 8, 10];
+
+const KEYS: Record<Mood, Key[]> = {
+  peace: [
+    { root: 50, scale: DORIAN }, // D dorian
+    { root: 53, scale: LYDIAN }, // F lydian
+    { root: 55, scale: MIXOLYDIAN }, // G mixolydian
+    { root: 48, scale: IONIAN }, // C major
+    { root: 57, scale: AEOLIAN }, // A minor
+  ],
+  war: [
+    { root: 50, scale: AEOLIAN }, // D minor
+    { root: 52, scale: PHRYGIAN }, // E phrygian
+    { root: 45, scale: DORIAN }, // A dorian
+  ],
 };
 
-const PLAYLISTS = { peace: ['road', 'fair', 'watch'], war: ['arms'] } as const;
-export type Mood = keyof typeof PLAYLISTS;
+// Chord progressions as scale degrees (0 = tonic); each chord lasts two bars.
+const PROGRESSIONS: Record<Mood, number[][]> = {
+  peace: [
+    [0, 3, 4, 0],
+    [0, 5, 3, 4],
+    [0, 2, 3, 0],
+    [5, 3, 0, 4],
+    [0, 4, 5, 3],
+    [3, 0, 4, 0],
+  ],
+  war: [
+    [0, 5, 6, 0],
+    [0, 3, 6, 4],
+    [0, 6, 5, 4],
+  ],
+};
 
-/** Seeded hash in [0, 1), so variations repeat the same way each pass. */
-function hash(...values: number[]) {
-  let h = 2166136261;
-  for (const v of values) {
-    h = Math.imul(h ^ (v | 0), 16777619);
-    h ^= h >>> 13;
+type Section = 'pad' | 'harp' | 'melody' | 'song' | 'breath';
+
+// Each section is 8 bars. Peace drifts between textures; war keeps moving.
+const PLANS: Record<Mood, Section[]> = {
+  peace: ['pad', 'harp', 'melody', 'song', 'harp', 'breath', 'melody', 'song'],
+  war: ['harp', 'melody', 'song', 'melody', 'harp', 'song'],
+};
+
+const TEMPO: Record<Mood, number> = { peace: 76, war: 92 };
+
+// Harp patterns: eighth-note steps (8 per bar) and which chord tone (0-5) to play.
+const HARP_PATTERNS: (number | null)[][] = [
+  [0, null, 1, null, 2, null, 1, null],
+  [0, 2, null, 3, null, 2, null, null],
+  [0, null, null, 2, null, null, 4, null],
+  [2, null, 1, null, 0, null, null, 3],
+];
+
+// Melody rhythms over two bars (16 steps): note lengths in steps, 0 = rest of that length.
+const RHYTHMS: number[][] = [
+  [3, 1, 4, 0, 2, 2, 4, 0], // dotted start, long close
+  [2, 2, 2, 2, 6, 0, 2], // walking, long hold
+  [0, 2, 2, 1, 1, 4, 4, 0], // pickup after a breath
+  [4, 0, 2, 2, 2, 6], // slow call
+  [1, 1, 2, 4, 0, 4, 4],
+];
+
+class Random {
+  private s: number;
+  constructor(seed: number) {
+    this.s = seed >>> 0 || 1;
   }
-  return (h >>> 0) / 4294967296;
+  next() {
+    let t = (this.s = (this.s + 0x6d2b79f5) >>> 0);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  int(n: number) {
+    return Math.floor(this.next() * n);
+  }
+  pick<T>(list: readonly T[]): T {
+    return list[this.int(list.length)];
+  }
+}
+
+interface Phrase {
+  /** Start step within two bars, length in steps, scale-degree offset. */
+  notes: { at: number; len: number; deg: number }[];
 }
 
 export class MusicPlayer {
   private ctx: AudioContext;
-  private out: GainNode;
+  private dry: GainNode;
+  private wet: GainNode;
   private enabled = false;
   private mood: Mood = 'peace';
-  private songIndex = 0;
-  private song: Song = SONGS.road;
+  private pendingMood: Mood | null = null;
+  private rng = new Random(Date.now());
+  private key: Key = KEYS.peace[0];
+  private progression = PROGRESSIONS.peace[0];
+  private section: Section = 'pad';
+  private sectionIndex = 0;
+  private harp = HARP_PATTERNS[0];
   private bar = 0;
   private step = 0;
-  private pass = 0;
   private next = 0;
+  private phrase: Phrase | null = null;
+  private answer = false;
   private noise: AudioBuffer;
 
   constructor(ctx: AudioContext, out: AudioNode) {
     this.ctx = ctx;
-    this.out = ctx.createGain();
-    this.out.gain.value = 0.9;
-    this.out.connect(out);
+    // A soft hall: generated impulse response, mixed under the dry signal.
+    const master = ctx.createGain();
+    master.gain.value = 0.9;
+    master.connect(out);
+    this.dry = ctx.createGain();
+    this.dry.gain.value = 0.75;
+    this.dry.connect(master);
+    const verb = ctx.createConvolver();
+    verb.buffer = this.impulse(2.8);
+    this.wet = ctx.createGain();
+    this.wet.gain.value = 0.5;
+    this.wet.connect(verb).connect(master);
     const len = ctx.sampleRate;
     this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
     const data = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    this.newSection(true);
+  }
+
+  private impulse(seconds: number): AudioBuffer {
+    const rate = this.ctx.sampleRate;
+    const len = Math.floor(rate * seconds);
+    const buf = this.ctx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        const t = i / len;
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 3) * (i < rate * 0.01 ? i / (rate * 0.01) : 1);
+      }
+    }
+    return buf;
   }
 
   setEnabled(on: boolean) {
     if (on && !this.enabled) {
-      this.next = this.ctx.currentTime + 0.1;
+      this.next = this.ctx.currentTime + 0.2;
       this.bar = 0;
       this.step = 0;
+      this.newSection(true);
     }
     this.enabled = on;
   }
 
-  /** Switch playlists; the change happens at the next bar line. */
+  /** Switch mood; it takes effect at the next section boundary (or soon after). */
   setMood(mood: Mood) {
-    if (mood === this.mood) return;
-    this.mood = mood;
-    this.pendingSwitch = true;
+    if (!this.enabled) {
+      // Not playing yet: start straight in the right mood.
+      if (mood !== this.mood) {
+        this.mood = mood;
+        this.newSection(true);
+      }
+      this.pendingMood = null;
+      return;
+    }
+    if (mood === this.mood && !this.pendingMood) return;
+    this.pendingMood = mood === this.mood ? null : mood;
   }
 
-  private pendingSwitch = false;
-
-  /** Called often; schedules notes a little ahead of the audio clock. */
   tick() {
     if (!this.enabled || this.ctx.state !== 'running') return;
-    const ahead = this.ctx.currentTime + 0.3;
+    const ahead = this.ctx.currentTime + 0.35;
     if (this.next < this.ctx.currentTime - 0.5) this.next = this.ctx.currentTime + 0.05;
     while (this.next < ahead) {
       this.playStep(this.next);
-      const dur = 60 / this.song.bpm / 2;
-      // A gentle swing on the lively tunes.
-      const swing = this.song.voice === 'lute' ? (this.step % 2 === 0 ? 1.12 : 0.88) : 1;
-      this.next += dur * swing;
+      // A gentle lilt: long-short eighths.
+      const beat = 60 / TEMPO[this.mood] / 2;
+      this.next += beat * (this.step % 2 === 0 ? 1.08 : 0.92);
       this.step++;
       if (this.step === 8) {
         this.step = 0;
         this.bar++;
-        if (this.pendingSwitch) {
-          this.pendingSwitch = false;
-          this.startSong(0);
-        } else if (this.bar >= 16) {
-          this.startSong(this.songIndex + 1);
+        // Moods change at a phrase boundary (every 4 bars), sections every 8.
+        if (this.pendingMood && this.bar % 4 === 0) {
+          this.mood = this.pendingMood;
+          this.pendingMood = null;
+          this.newSection(true);
+        } else if (this.bar >= this.sectionBars()) {
+          this.newSection(false);
         }
       }
     }
   }
 
-  private startSong(i: number) {
-    const list = PLAYLISTS[this.mood];
-    this.songIndex = i % list.length;
-    if (this.songIndex === 0) this.pass++;
-    this.song = SONGS[list[this.songIndex]];
+  /** Quiet passages are short breaths; the rest last eight bars. */
+  private sectionBars() {
+    return this.section === 'pad' || this.section === 'breath' ? 4 : 8;
+  }
+
+  private newSection(fresh: boolean) {
+    const plan = PLANS[this.mood];
+    this.sectionIndex = fresh ? this.rng.int(plan.length) : (this.sectionIndex + 1) % plan.length;
+    this.section = plan[this.sectionIndex];
     this.bar = 0;
-    this.step = 0;
+    // New key now and then; new progression every section.
+    if (fresh || this.rng.next() < 0.35) this.key = this.rng.pick(KEYS[this.mood]);
+    this.progression = this.rng.pick(PROGRESSIONS[this.mood]);
+    this.harp = this.rng.pick(HARP_PATTERNS);
+    this.phrase = null;
+    this.answer = false;
+  }
+
+  /** MIDI note for a scale degree (any integer; wraps across octaves). */
+  private degree(d: number, octave = 0): number {
+    const n = this.key.scale.length;
+    const o = Math.floor(d / n);
+    return this.key.root + this.key.scale[((d % n) + n) % n] + 12 * (o + octave);
+  }
+
+  private chordDegrees(): number[] {
+    const c = this.progression[Math.floor(this.bar / 2) % this.progression.length];
+    return [c, c + 2, c + 4];
   }
 
   private playStep(t: number) {
-    const s = this.song;
-    // Form A A B A, four bars per section.
-    const section = Math.floor(this.bar / 4);
-    const inBar = this.bar % 4;
-    const useB = section === 2;
-    const chord = (useB ? s.chordsB : s.chordsA)[inBar];
-    let note = (useB ? s.b : s.a)[inBar][this.step];
-    const beat = 60 / s.bpm / 2;
-    // The repeat of A varies a little: a neighbor chord tone here, a breath there.
-    if (note !== null && section === 1) {
-      const r = hash(this.pass, this.bar, this.step, s.bpm);
-      if (r < 0.12) note = null;
-      else if (r < 0.26) {
-        const tones = chord.map((c) => c % 12);
-        for (let k = 1; k < 6; k++) if (tones.includes((note + k) % 12)) {
-          note += k;
-          break;
-        }
+    const section = this.section;
+    const beat = 60 / TEMPO[this.mood] / 2;
+    const chord = this.chordDegrees();
+    const war = this.mood === 'war';
+    const chordStart = this.step === 0 && this.bar % 2 === 0;
+
+    // Pad: always, except it thins out during a breath.
+    if (chordStart) {
+      const gain = section === 'breath' ? 0.014 : 0.024;
+      for (const d of chord) this.pad(this.degree(d), t, beat * 16, gain);
+    }
+    // Bass on the downbeat (and the half bar in war).
+    if (section !== 'breath' && (this.step === 0 || (war && this.step === 4))) {
+      this.bass(this.degree(chord[0], -1), t, beat * (war ? 3 : 6));
+    }
+    // Harp arpeggios.
+    if (section === 'harp' || section === 'song' || (war && section === 'melody')) {
+      const slot = this.harp[this.step];
+      if (slot !== null && this.rng.next() > 0.15) {
+        const tones = [...chord, chord[0] + 7, chord[1] + 7, chord[2] + 7];
+        this.pluck(this.degree(tones[slot], 1), t, war ? 0.034 : 0.04);
       }
     }
-    if (note !== null) {
-      let len = 1;
-      const line = (useB ? s.b : s.a)[inBar];
-      while (this.step + len < 8 && line[this.step + len] === null) len++;
-      this.lead(s.voice, note, t, Math.min(len, 3) * beat);
+    // Melody in two-bar phrases: a call, then an answer that echoes it.
+    if ((section === 'melody' || section === 'song') && this.step === 0 && this.bar % 2 === 0) {
+      this.playPhrase(t, beat, chord);
     }
-    // Harmony: drone or plucked chord at the bar line.
-    if (this.step === 0) {
-      if (s.drone) this.drone(chord[0], chord[1], t, beat * 8);
-      else this.strum(chord, t, s.voice === 'brass' ? 0.035 : 0.05);
+    // War: a soft, low drum heartbeat.
+    if (war && section !== 'breath') {
+      if (this.step === 0) this.drum(t, 0.16);
+      else if (this.step === 3 && this.bar % 2 === 1) this.drum(t, 0.08);
+      else if (this.step === 6) this.drum(t, 0.1);
     }
-    const b = s.bass[this.step];
-    if (b) this.bassNote(chord[Math.min(b - 1, chord.length - 1)] - 12, t, beat * 1.6);
-    const d = s.drum[this.step];
-    if (d) this.drum(t, d / 9);
-    const tb = s.tabor[this.step];
-    if (tb) this.tabor(t, tb / 9);
-    const j = s.jingle[this.step];
-    if (j) this.jingle(t, j / 9);
   }
 
-  // -------------------------------------------------------------------------
+  private playPhrase(t: number, beat: number, chord: number[]) {
+    // Every other phrase rests, so the melody never talks non-stop.
+    if (this.bar % 4 === 2 && this.rng.next() < 0.4) return;
+    if (!this.phrase || !this.answer) {
+      this.phrase = this.makePhrase(chord);
+      this.answer = true;
+    } else {
+      // The answer: same rhythm, contour shifted, landing on the chord root.
+      const shift = this.rng.pick([-2, -1, 1, 2]);
+      const notes = this.phrase.notes.map((n) => ({ ...n, deg: n.deg + shift }));
+      notes[notes.length - 1].deg = chord[0] + 7;
+      this.phrase = { notes };
+      this.answer = false;
+    }
+    for (const n of this.phrase.notes) {
+      this.flute(this.degree(n.deg), t + n.at * beat, n.len * beat);
+    }
+  }
+
+  private makePhrase(chord: number[]): Phrase {
+    const rhythm = this.rng.pick(RHYTHMS);
+    const notes: Phrase['notes'] = [];
+    let at = 0;
+    // Start on a chord tone in the flute's warm middle register.
+    let deg = this.rng.pick(chord) + 7;
+    rhythm.forEach((len, i) => {
+      const length = len || 2;
+      if (len > 0 && at < 16) {
+        notes.push({ at, len: Math.min(len, 16 - at), deg });
+        // Mostly steps, sometimes a small leap; stay within about an octave.
+        const move = this.rng.pick([-1, -1, 1, 1, 2, -2, 0, 3]);
+        deg = Math.max(5, Math.min(13, deg + move));
+        // Strong beats and the final note prefer chord tones.
+        if (i === rhythm.length - 2) deg = chord[this.rng.int(3)] + 7;
+      }
+      at += length;
+    });
+    return { notes };
+  }
+
+  // ---------------------------------------------------------------------------
   // Voices
 
-  private env(t: number, peak: number, attack: number, dur: number, release = 0.08) {
+  private out(t: number, gain: number, attack: number, hold: number, release: number, send = 0.6) {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(peak, t + attack);
-    g.gain.setTargetAtTime(peak * 0.7, t + attack, dur * 0.4);
-    g.gain.setTargetAtTime(0.0001, t + dur, release);
-    g.connect(this.out);
+    g.gain.linearRampToValueAtTime(gain, t + attack);
+    g.gain.setValueAtTime(gain, t + attack + hold);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + attack + hold + release);
+    g.connect(this.dry);
+    const s = this.ctx.createGain();
+    s.gain.value = send;
+    g.connect(s).connect(this.wet);
     return g;
   }
 
-  private osc(type: OscillatorType, freq: number, t: number, stop: number, dest: AudioNode) {
+  private osc(type: OscillatorType, freq: number, t: number, stop: number, dest: AudioNode, detune = 0) {
     const o = this.ctx.createOscillator();
     o.type = type;
     o.frequency.setValueAtTime(freq, t);
+    o.detune.value = detune;
     o.connect(dest);
     o.start(t);
     o.stop(stop);
     return o;
   }
 
-  private lead(voice: Voice, note: number, t: number, dur: number) {
-    const f = hz(note);
-    const end = t + dur + 0.6;
-    if (voice === 'recorder') {
-      const g = this.env(t, 0.07, 0.04, dur, 0.06);
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = 2400;
-      filter.connect(g);
-      const o = this.osc('sine', f, t, end, filter);
-      this.osc('triangle', f * 2, t, end, filter).detune.value = 3;
-      // Breathy vibrato after the attack.
+  /** Warm, slow pad: two detuned triangles through a low filter. */
+  private pad(note: number, t: number, dur: number, gain: number) {
+    const g = this.out(t, gain, 1.4, Math.max(0, dur - 1.4), 2.4, 0.8);
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = this.mood === 'war' ? 700 : 900;
+    f.connect(g);
+    const end = t + dur + 2.6;
+    this.osc('triangle', hz(note), t, end, f, -5);
+    this.osc('triangle', hz(note), t, end, f, 5);
+  }
+
+  /** Soft harp: a sine with a quick, rounded decay and a hint of overtone. */
+  private pluck(note: number, t: number, gain: number) {
+    const g = this.out(t, gain, 0.006, 0, 1.6, 0.7);
+    this.osc('sine', hz(note), t, t + 1.8, g);
+    const g2 = this.out(t, gain * 0.25, 0.004, 0, 0.5, 0.5);
+    this.osc('sine', hz(note) * 2, t, t + 0.6, g2);
+  }
+
+  /** Breathy low flute: sine plus a touch of filtered air, gentle vibrato. */
+  private flute(note: number, t: number, dur: number) {
+    const gain = this.mood === 'war' ? 0.045 : 0.05;
+    const g = this.out(t, gain, 0.09, Math.max(0.05, dur - 0.15), 0.35, 0.65);
+    const o = this.osc('sine', hz(note), t, t + dur + 0.5, g);
+    const o2 = this.osc('triangle', hz(note), t, t + dur + 0.5, this.out(t, gain * 0.18, 0.09, Math.max(0.05, dur - 0.15), 0.3, 0.6));
+    if (dur > 0.5) {
       const lfo = this.ctx.createOscillator();
       const depth = this.ctx.createGain();
-      lfo.frequency.value = 5.2;
+      lfo.frequency.value = 4.6;
       depth.gain.setValueAtTime(0, t);
-      depth.gain.linearRampToValueAtTime(f * 0.006, t + 0.25);
-      lfo.connect(depth).connect(o.frequency);
+      depth.gain.linearRampToValueAtTime(hz(note) * 0.004, t + 0.4);
+      lfo.connect(depth);
+      depth.connect(o.frequency);
+      depth.connect(o2.frequency);
       lfo.start(t);
-      lfo.stop(end);
-    } else if (voice === 'lute') {
-      const g = this.env(t, 0.09, 0.005, Math.min(dur, 0.25), 0.25);
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(3200, t);
-      filter.frequency.exponentialRampToValueAtTime(700, t + 0.4);
-      filter.connect(g);
-      this.osc('sawtooth', f, t, end, filter);
-      this.osc('triangle', f * 1.002, t, end, filter);
-    } else if (voice === 'harp') {
-      const g = this.env(t, 0.08, 0.004, 0.05, 0.9);
-      this.osc('sine', f, t, t + 2.5, g);
-      const g2 = this.env(t, 0.025, 0.004, 0.03, 0.35);
-      this.osc('sine', f * 3, t, t + 1.5, g2);
-    } else {
-      const g = this.env(t, 0.06, 0.03, dur, 0.07);
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.Q.value = 2;
-      filter.frequency.setValueAtTime(600, t);
-      filter.frequency.exponentialRampToValueAtTime(2200, t + 0.06);
-      filter.frequency.setTargetAtTime(1200, t + 0.08, 0.15);
-      filter.connect(g);
-      this.osc('sawtooth', f, t, end, filter);
-      this.osc('square', f / 2, t, end, filter).detune.value = -4;
+      lfo.stop(t + dur + 0.5);
     }
-  }
-
-  private strum(chord: number[], t: number, gap: number) {
-    chord.forEach((n, i) => {
-      const g = this.env(t + i * gap, 0.035, 0.005, 0.1, 0.5);
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = 1600;
-      filter.connect(g);
-      this.osc('triangle', hz(n + 12), t + i * gap, t + i * gap + 2, filter);
-    });
-  }
-
-  private drone(root: number, fifth: number, t: number, dur: number) {
-    const g = this.env(t, 0.022, 0.3, dur, 0.3);
-    this.osc('sine', hz(root), t, t + dur + 1.2, g);
-    this.osc('sine', hz(fifth), t, t + dur + 1.2, g).detune.value = 2;
-  }
-
-  private bassNote(note: number, t: number, dur: number) {
-    const g = this.env(t, 0.1, 0.01, dur, 0.12);
-    this.osc('triangle', hz(note), t, t + dur + 0.6, g);
-  }
-
-  private noiseBurst(t: number, dur: number, gain: number, type: BiquadFilterType, freq: number, q = 1) {
+    // A little breath at the start of each note.
     const src = this.ctx.createBufferSource();
     src.buffer = this.noise;
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = type;
-    filter.frequency.value = freq;
-    filter.Q.value = q;
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(gain, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(filter).connect(g).connect(this.out);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = hz(note) * 2;
+    bp.Q.value = 2;
+    const ng = this.out(t, gain * 0.25, 0.03, 0.02, 0.12, 0.4);
+    src.connect(bp).connect(ng);
     src.start(t, Math.random() * 0.5);
-    src.stop(t + dur + 0.05);
+    src.stop(t + 0.25);
   }
 
-  /** Frame drum: a pitched thump with a skin slap. */
-  private drum(t: number, v: number) {
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.25 * v, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
-    g.connect(this.out);
+  private bass(note: number, t: number, dur: number) {
+    const g = this.out(t, 0.07, 0.03, dur * 0.5, dur * 0.6, 0.25);
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 400;
+    f.connect(g);
+    this.osc('triangle', hz(note), t, t + dur * 1.3, f);
+    this.osc('sine', hz(note), t, t + dur * 1.3, f);
+  }
+
+  /** Soft low frame drum: a pitched thump, no rattle. */
+  private drum(t: number, gain: number) {
+    const g = this.out(t, gain, 0.005, 0, 0.45, 0.3);
     const o = this.ctx.createOscillator();
-    o.frequency.setValueAtTime(130, t);
-    o.frequency.exponentialRampToValueAtTime(55, t + 0.25);
+    o.frequency.setValueAtTime(95, t);
+    o.frequency.exponentialRampToValueAtTime(48, t + 0.3);
     o.connect(g);
     o.start(t);
-    o.stop(t + 0.4);
-    this.noiseBurst(t, 0.06, 0.08 * v, 'lowpass', 900);
-  }
-
-  private tabor(t: number, v: number) {
-    this.noiseBurst(t, 0.09, 0.12 * v, 'bandpass', 1400, 1.5);
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.06 * v, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-    g.connect(this.out);
-    this.osc('sine', 240, t, t + 0.15, g);
-  }
-
-  private jingle(t: number, v: number) {
-    this.noiseBurst(t, 0.12, 0.06 * v, 'highpass', 7000, 0.7);
+    o.stop(t + 0.5);
   }
 }
