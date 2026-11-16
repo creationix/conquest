@@ -241,7 +241,7 @@ export class GameScreen {
           // Let people know when someone elsewhere (or a computer) offers them a deal.
           if (this.session.controls(e.to) && !this.session.controls(e.from)) {
             play('coin');
-            this.toast(`${this.player(e.from).name} offers ${this.player(e.to).name} a trade`, false, e.from);
+            this.toast(`${this.player(e.from).name} offers ${this.player(e.to).name} ${stockText(e.give)} for ${stockText(e.get)}`, false, e.from);
           }
           break;
         case 'declined':
@@ -1536,6 +1536,13 @@ function siteIcon(site: string) {
 function stockView(stock: Stock, compact = false) {
   const parts = GOODS.filter((g) => !compact || stock[g] > 0).map((g) => h('span', goodIcon(g), String(stock[g])));
   return h('span.goods', { style: { display: 'inline-flex', gap: '8px', verticalAlign: 'middle' } }, parts.length ? parts : 'nothing');
+}
+
+/** Plain-text amounts for messages: "2 coal", "1 gold and 3 timber". */
+function stockText(stock: Stock) {
+  const parts = GOODS.filter((g) => stock[g] > 0).map((g) => `${stock[g]} ${g}`);
+  if (!parts.length) return 'nothing';
+  return parts.length === 1 ? parts[0] : parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
 }
 
 /** Short cost labels: "4 gold", "iron + coal", "1 of each". */
