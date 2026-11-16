@@ -1,0 +1,18 @@
+{
+  "name": "Conquest",
+  "short_name": "Conquest",
+  "description": "Claim land, grow rich, build cities. A family remake of the 1986 strategy classic Lords of Conquest.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#091d27",
+  "theme_color": "#0b2029",
+  "categories": ["games", "strategy"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

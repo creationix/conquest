@@ -1,0 +1,455 @@
+// Home screen, game setup and the network lobby.
+
+import { GameHost } from '../engine/host.ts';
+import type { Lobby, RoomView } from '../engine/protocol.ts';
+import { createGame, defaultSettings } from '../engine/rules.ts';
+import { COLORS, MAX_PLAYERS, type Level, type PlayerSetup, type Settings } from '../engine/types.ts';
+import { play } from './audio.ts';
+import { h, mount, svgIcon } from './dom.ts';
+import { ICONS, STROKED, type IconName } from './icons.ts';
+import { MapRenderer } from './renderer.ts';
+
+function icon(name: IconName) {
+  return svgIcon(ICONS[name], 'ico' + (STROKED.has(name) ? ' stroke' : ''));
+}
+
+// ---------------------------------------------------------------------------
+// Home
+
+export interface HomeActions {
+  resume: (() => void) | null;
+  newGame: () => void;
+  network: (() => void) | null;
+  networkHelp: () => void;
+  rules: () => void;
+}
+
+export function showHome(root: HTMLElement, actions: HomeActions): () => void {
+  const canvas = h('canvas') as HTMLCanvasElement;
+  const card = h(
+    'div.menu-card',
+    h('div.eyebrow', 'A remake of the 1986 classic'),
+    h('div.title', 'CONQUEST'),
+    h('p.subtitle', 'Claim land. Grow rich. Build cities. Betray your family.'),
+    h(
+      'div.stack',
+      actions.resume ? h('button.primary', { onclick: actions.resume }, 'Continue game') : null,
+      h('button', { class: actions.resume ? '' : 'primary', onclick: actions.newGame }, 'New game on this device'),
+      actions.network
+        ? h('button', { onclick: actions.network }, icon('device'), 'Play with other devices')
+        : h('button', { onclick: actions.networkHelp }, icon('device'), 'Play with other devices'),
+      h('button.quiet', { onclick: actions.rules }, icon('scroll'), 'How to play'),
+    ),
+    h('div.foot', 'Pass and play on one device, or connect phones, tablets and laptops on your Wi-Fi.'),
+  );
+  mount(root, h('div.screen.home', canvas, h('div.veil'), card));
+
+  // Attract mode: computer lords battle quietly behind the menu.
+  const renderer = new MapRenderer(canvas);
+  let host: GameHost | null = null;
+  let stopped = false;
+  const start = () => {
+    if (stopped) return;
+    host?.stop();
+    const settings: Settings = { ...defaultSettings(), level: 3, chance: 'high', selection: 'deal', seed: 'ATTRACT' + Math.floor(Math.random() * 1e6) };
+    const players: PlayerSetup[] = [0, 1, 2, 3, 4].map((c) => ({ name: COLORS[c].name, color: c, ai: true }));
+    host = new GameHost(createGame(settings, players), { pace: 0.7 });
+    renderer.setState(host.state);
+    let last = host.state.eventCount;
+    host.subscribe((s) => {
+      renderer.setState(s);
+      renderer.animateEvents(s.log.filter((e) => e.n >= last));
+      last = s.eventCount;
+      if (s.phase === 'over') setTimeout(start, 4000);
+    });
+  };
+  start();
+  const onVis = () => {
+    if (document.hidden) host?.stop();
+    else start();
+  };
+  document.addEventListener('visibilitychange', onVis);
+  return () => {
+    stopped = true;
+    host?.stop();
+    renderer.destroy();
+    document.removeEventListener('visibilitychange', onVis);
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Setup form (shared by local games and network lobbies)
+
+export function defaultLobby(): Lobby {
+  const settings = defaultSettings();
+  return {
+    settings,
+    players: [
+      { name: 'Red', color: 0, ai: false },
+      { name: 'Blue', color: 1, ai: false },
+      { name: 'Green', color: 2, ai: true },
+    ],
+  };
+}
+
+export function loadLobby(): Lobby {
+  try {
+    const raw = localStorage.getItem('conquest-lobby');
+    if (raw) {
+      const l = JSON.parse(raw) as Lobby;
+      if (l.players?.length >= 2 && l.settings) return { ...l, settings: { ...defaultSettings(), ...l.settings, seed: defaultSettings().seed } };
+    }
+  } catch {
+    /* ignore */
+  }
+  return defaultLobby();
+}
+
+export function saveLobby(l: Lobby) {
+  try {
+    localStorage.setItem('conquest-lobby', JSON.stringify(l));
+  } catch {
+    /* ignore */
+  }
+}
+
+interface SetupOptions {
+  title: string;
+  lobby: Lobby;
+  editable: boolean;
+  onChange: (lobby: Lobby) => void;
+  onStart: (() => void) | null;
+  onBack: () => void;
+  /** Network lobbies: seat claims. */
+  room?: RoomView;
+  myId?: string;
+  onClaim?: (seat: number, claim: boolean) => void;
+  extra?: HTMLElement | null;
+  backLabel?: string;
+}
+
+const LEVELS: { v: Level; label: string; help: string }[] = [
+  { v: 1, label: 'Beginner', help: 'Only gold and horses. Great for a first game.' },
+  { v: 2, label: 'Intermediate', help: 'All five resources: gold, iron, coal, timber and horses.' },
+  { v: 3, label: 'Advanced', help: 'Adds boats, so lords can cross the water.' },
+  { v: 4, label: 'Expert', help: 'Weapons, horses and boats can also be moved during shipment.' },
+];
+
+export function renderSetup(root: HTMLElement, o: SetupOptions): { update: (o2: Partial<SetupOptions>) => void; destroy: () => void } {
+  let opts = o;
+  const preview = h('canvas.preview') as HTMLCanvasElement;
+  const renderer = new MapRenderer(preview);
+  let previewKey = '';
+  const scroll = h('div.scroll');
+  mount(root, h('div.screen', scroll));
+
+  const setSettings = (patch: Partial<Settings>) => {
+    const lobby = { ...opts.lobby, settings: { ...opts.lobby.settings, ...patch } };
+    // The classic map has islands, so it needs boats.
+    if (lobby.settings.map.kind === 'classic' && lobby.settings.level < 3) lobby.settings.level = 3;
+    opts.onChange(lobby);
+  };
+  const setPlayers = (players: PlayerSetup[]) => opts.onChange({ ...opts.lobby, players });
+
+  function seg<T extends string | number>(value: T, options: { v: T; label: string }[], on: (v: T) => void) {
+    return h(
+      'div.seg',
+      options.map((x) =>
+        h('button', { 'aria-pressed': String(x.v === value), disabled: !opts.editable, onclick: () => (play('tap'), on(x.v)) }, x.label),
+      ),
+    );
+  }
+
+  function render() {
+    const { lobby, editable, room, myId } = opts;
+    const s = lobby.settings;
+    const used = new Set(lobby.players.map((p) => p.color));
+    const rows = lobby.players.map((p, i) => {
+      const c = COLORS[p.color];
+      const holder = room?.seats[i];
+      const holderName = holder ? room?.clients.find((x) => x.id === holder)?.name ?? 'a device' : null;
+      return h(
+        'div.player-row',
+        h('button.swatch', {
+          style: { background: c.fill },
+          title: 'Change color',
+          'aria-label': `Color: ${c.name}`,
+          disabled: !editable,
+          onclick: () => {
+            let next = (p.color + 1) % COLORS.length;
+            while (used.has(next) && next !== p.color) next = (next + 1) % COLORS.length;
+            const players = lobby.players.slice();
+            const wasDefault = COLORS.some((x) => x.name === p.name);
+            players[i] = { ...p, color: next, name: wasDefault ? COLORS[next].name : p.name };
+            setPlayers(players);
+          },
+        }),
+        h('input', {
+          value: p.name,
+          maxLength: 16,
+          disabled: !editable,
+          'aria-label': 'Player name',
+          onchange: (e: Event) => {
+            const players = lobby.players.slice();
+            players[i] = { ...p, name: (e.target as HTMLInputElement).value.trim() || COLORS[p.color].name };
+            setPlayers(players);
+          },
+        }),
+        h(
+          'div.seg',
+          h('button', { 'aria-pressed': String(!p.ai), disabled: !editable, onclick: () => setPlayers(lobby.players.map((x, j) => (j === i ? { ...x, ai: false } : x))) }, 'Person'),
+          h('button', { 'aria-pressed': String(p.ai), disabled: !editable, onclick: () => setPlayers(lobby.players.map((x, j) => (j === i ? { ...x, ai: true } : x))) }, icon('computer')),
+        ),
+        room && !p.ai
+          ? holder === myId
+            ? h('button.small', { 'aria-pressed': 'true', onclick: () => opts.onClaim?.(i, false) }, icon('check'), 'Me')
+            : h('button.small', { onclick: () => opts.onClaim?.(i, true) }, holderName ? `${holderName} · take` : "That's me")
+          : null,
+        editable && lobby.players.length > 2
+          ? h('button.quiet.small', { 'aria-label': 'Remove player', onclick: () => setPlayers(lobby.players.filter((_, j) => j !== i)) }, icon('close'))
+          : null,
+      );
+    });
+    const addPlayer = () => {
+      const color = COLORS.findIndex((_, i) => !used.has(i));
+      if (color < 0) return;
+      setPlayers([...lobby.players, { name: COLORS[color].name, color, ai: lobby.players.filter((p) => !p.ai).length >= 2 }]);
+    };
+    const humans = lobby.players.filter((p) => !p.ai).length;
+    const mapKind = s.map.kind === 'classic' ? 'classic' : s.map.size;
+    mount(
+      scroll,
+      h(
+        'div.sheet',
+        h('div.topbar', h('button.quiet', { onclick: opts.onBack }, '‹ ' + (opts.backLabel ?? 'Back')), h('span.spacer')),
+        h('h1', opts.title),
+        opts.extra ?? null,
+        h('h2', 'Lords'),
+        h(
+          'div.card',
+          rows,
+          editable && lobby.players.length < MAX_PLAYERS ? h('div.row', { style: { marginTop: '10px' } }, h('button', { onclick: addPlayer }, icon('plus'), 'Add a lord')) : null,
+          room
+            ? h('p.muted', { style: { fontSize: '13px', margin: '10px 0 0' } }, "Each person taps \"That's me\" on their own device. Seats nobody claims are played on the host's device, pass-and-play style.")
+            : humans > 1
+              ? h('p.muted', { style: { fontSize: '13px', margin: '10px 0 0' } }, 'Everyone shares this device and passes it around.')
+              : null,
+        ),
+        h('h2', 'Map'),
+        h(
+          'div.card',
+          preview,
+          h(
+            'div.option',
+            h('label', 'World'),
+            seg(mapKind, [
+              { v: 'small', label: 'Small' },
+              { v: 'medium', label: 'Medium' },
+              { v: 'large', label: 'Large' },
+              { v: 'classic', label: 'Classic' },
+            ], (v) => setSettings({ map: v === 'classic' ? { ...s.map, kind: 'classic' } : { ...s.map, kind: 'random', size: v as 'small' } })),
+            h('div.help', s.map.kind === 'classic' ? 'The hand-drawn map from the original 2010 version. Needs boats (Advanced+).' : `${({ small: 24, medium: 34, large: 46 } as Record<string, number>)[s.map.size]} territories.`),
+          ),
+          s.map.kind === 'random'
+            ? h(
+                'div.option',
+                h('label', 'Water'),
+                seg(s.map.water, [
+                  { v: 'low', label: 'A little' },
+                  { v: 'medium', label: 'Some' },
+                  { v: 'high', label: 'Lots' },
+                ], (v) => setSettings({ map: { ...s.map, water: v } })),
+              )
+            : null,
+          h(
+            'div.option',
+            h('label', 'Shuffle'),
+            h(
+              'div.row',
+              h('button', { disabled: !editable, onclick: () => setSettings({ seed: Math.random().toString(36).slice(2, 8).toUpperCase() }) }, '⚄ New map'),
+              h('span.muted', { style: { fontSize: '13px' } }, `Seed ${s.seed}`),
+            ),
+          ),
+          h(
+            'div.option',
+            h('label', 'Lands'),
+            seg(s.selection, [
+              { v: 'pick', label: 'Take turns choosing' },
+              { v: 'deal', label: 'Deal randomly' },
+            ], (v) => setSettings({ selection: v })),
+          ),
+        ),
+        h('h2', 'Rules'),
+        h(
+          'div.card',
+          h(
+            'div.option',
+            h('label', 'Level'),
+            seg(s.level, LEVELS.map((l) => ({ v: l.v, label: l.label })), (v) => setSettings({ level: v })),
+            h('div.help', LEVELS[s.level - 1].help),
+          ),
+          h(
+            'div.option',
+            h('label', 'Chance'),
+            seg(s.chance, [
+              { v: 'low', label: 'Low' },
+              { v: 'medium', label: 'Medium' },
+              { v: 'high', label: 'High' },
+            ], (v) => setSettings({ chance: v })),
+            h(
+              'div.help',
+              s.chance === 'low'
+                ? 'No luck: the stronger side always wins, ties go to the attacker.'
+                : s.chance === 'medium'
+                  ? 'Ties are a coin toss, and some years have no production, trade or shipment.'
+                  : 'Odds follow strength, so underdogs can win. Some years skip phases.',
+            ),
+          ),
+          h(
+            'div.option',
+            h('label', 'Cities to win'),
+            seg(s.citiesToWin, [3, 4, 5, 6].map((n) => ({ v: n, label: String(n) })), (v) => setSettings({ citiesToWin: v })),
+          ),
+          h(
+            'div.option',
+            h('label', 'Resources'),
+            seg(s.abundance, [
+              { v: 'low', label: 'Scarce' },
+              { v: 'medium', label: 'Normal' },
+              { v: 'high', label: 'Plenty' },
+            ], (v) => setSettings({ abundance: v })),
+          ),
+        ),
+        h(
+          'div.row',
+          { style: { marginTop: '22px' } },
+          h('span.spacer'),
+          opts.onStart
+            ? h('button.primary', { style: { fontSize: '18px', padding: '14px 26px' }, onclick: opts.onStart }, 'Start the game')
+            : h('span.muted', editable ? '' : 'Waiting for the host to start…'),
+        ),
+      ),
+    );
+    // Preview the map (and resource sites) for these settings.
+    const key = JSON.stringify([s.seed, s.map, s.level, s.abundance, lobby.players.length]);
+    if (key !== previewKey) {
+      previewKey = key;
+      try {
+        const state = createGame({ ...s, selection: 'pick' }, lobby.players);
+        renderer.setState(state);
+      } catch {
+        /* ignore invalid setups while editing */
+      }
+    }
+  }
+  render();
+  return {
+    update(o2) {
+      opts = { ...opts, ...o2 };
+      const top = scroll.scrollTop;
+      render();
+      scroll.scrollTop = top;
+    },
+    destroy() {
+      renderer.destroy();
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Network: room list
+
+export interface NetScreenOptions {
+  serverName: string;
+  addresses: string[];
+  deviceName: string;
+  rooms: import('../engine/protocol.ts').RoomSummary[];
+  connected: boolean;
+  onRename: (name: string) => void;
+  onHost: () => void;
+  onJoin: (id: string) => void;
+  onBack: () => void;
+}
+
+export function renderNetwork(root: HTMLElement, o: NetScreenOptions) {
+  const rooms = o.rooms.filter((r) => !r.over);
+  mount(
+    root,
+    h(
+      'div.screen',
+      h(
+        'div.scroll',
+        h(
+          'div.sheet',
+          h('div.topbar', h('button.quiet', { onclick: o.onBack }, '‹ Home')),
+          h('h1', 'Play with other devices'),
+          h(
+            'div.card',
+            h('p', { style: { margin: '0 0 6px' } }, 'Everyone on the same Wi-Fi opens:'),
+            o.addresses.length ? o.addresses.map((a) => h('div.big-url', a)) : h('div.big-url', location.origin + '/'),
+            h('p.muted', { style: { fontSize: '13px', margin: '8px 0 0' } }, `Server: ${o.serverName}${o.connected ? '' : ' · connecting…'}`),
+          ),
+          h('h2', 'This device'),
+          h(
+            'div.card',
+            h(
+              'div.row',
+              h('input', {
+                value: o.deviceName,
+                maxLength: 24,
+                style: { flex: '1', background: '#071a23', border: '1px solid #ffffff22', borderRadius: '11px', padding: '10px 12px' },
+                'aria-label': 'Device name',
+                onchange: (e: Event) => o.onRename((e.target as HTMLInputElement).value.trim() || 'Device'),
+              }),
+            ),
+            h('p.muted', { style: { fontSize: '13px', margin: '8px 0 0' } }, "A name like \"Mom's phone\" helps everyone see who is playing where."),
+          ),
+          h('h2', 'Games on this network'),
+          h(
+            'div.card',
+            rooms.length
+              ? rooms.map((r) =>
+                  h(
+                    'div.room',
+                    h(
+                      'div',
+                      { style: { flex: '1' } },
+                      h('b', r.name),
+                      h('div.muted', { style: { fontSize: '13px' } }, r.started ? `Year ${r.year} · in progress` : 'Getting ready', ' · ', r.players.map((p) => p.name).join(', ')),
+                      h('div.dots', { style: { marginTop: '6px' } }, r.players.map((p) => h('span.dot', { style: { background: COLORS[p.color]?.fill } }))),
+                    ),
+                    h('button.primary', { onclick: () => o.onJoin(r.id) }, r.started ? 'Watch / rejoin' : 'Join'),
+                  ),
+                )
+              : h('p.muted', { style: { margin: '0' } }, 'No games yet. Host one!'),
+          ),
+          h('div.row', { style: { marginTop: '18px' } }, h('span.spacer'), h('button.primary', { onclick: o.onHost }, icon('plus'), 'Host a new game')),
+        ),
+      ),
+    ),
+  );
+}
+
+export function renderNetworkHelp(root: HTMLElement, onBack: () => void) {
+  mount(
+    root,
+    h(
+      'div.screen',
+      h(
+        'div.scroll',
+        h(
+          'div.sheet',
+          h('div.topbar', h('button.quiet', { onclick: onBack }, '‹ Home')),
+          h('h1', 'Play with other devices'),
+          h(
+            'div.card',
+            h('p', { style: { marginTop: '0' } }, 'To connect several phones, tablets and laptops, one computer on your Wi-Fi runs the Conquest server:'),
+            h('pre.notice', { style: { userSelect: 'text', whiteSpace: 'pre-wrap' } }, 'git clone https://github.com/creationix/conquest\ncd conquest\nnpm install\nnpm start'),
+            h('p', 'It prints an address like http://192.168.1.20:8080/. Open that on every device and choose "Play with other devices".'),
+            h('p.muted', { style: { fontSize: '13px' } }, 'You can also add that address to your home screen. Each device claims the lords it will play; one device can hold several lords, so pass-and-play and multiple devices mix freely.'),
+          ),
+        ),
+      ),
+    ),
+  );
+}
