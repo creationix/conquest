@@ -746,6 +746,14 @@ export function apply(state: GameState, action: Action): GameState {
   const player = s.players[p];
   if (!player) fail('Unknown player');
   if (s.phase === 'over') fail('The game is over');
+  if (action.type === 'setAi') {
+    if (!player.alive) fail('That lord is out of the game');
+    if (player.ai === action.ai) fail(action.ai ? 'Already played by the computer' : 'Already played by a person');
+    player.ai = action.ai;
+    emit(s, { kind: 'pass', player: p, reason: action.ai ? `${player.name} is now played by the computer.` : `${player.name} is back in human hands.` });
+    s.version++;
+    return s;
+  }
   if (action.type === 'resign') {
     if (!player.alive) fail('Already out');
     const wasCurrent = currentPlayer(s) === p;

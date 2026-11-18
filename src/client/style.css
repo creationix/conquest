@@ -380,3 +380,8 @@ dialog::backdrop { background: #04131dbb; }
 .panel .choice.forces .cargo { display: flex; gap: 6px; flex-wrap: wrap; padding-left: 10px; }
 .panel .choice.forces .cargo button { min-width: 0; flex: 0 0 auto; flex-direction: row; min-height: 32px; padding: 4px 10px; font-size: 12.5px; }
 .game.column .panel .choice.forces { flex-direction: column; }
+/* "Since the last turn" battle recap on the pass-the-device card. */
+.overlay .recap { text-align: left; margin: 12px 0 4px; padding: 10px 12px; border-radius: 14px; background: #071a23; display: grid; gap: 4px; }
+.overlay .recap .eyebrow { font-size: 10px; margin-bottom: 2px; }
+.overlay .recap-line { font-size: 13.5px; color: var(--text); display: flex; align-items: baseline; gap: 6px; line-height: 1.35; }
+.overlay .recap-line .dot { flex-shrink: 0; transform: translateY(1px); }

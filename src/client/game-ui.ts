@@ -171,6 +171,7 @@ export class GameScreen {
     const state = session.state;
     this.names = territoryNames(hashSeed(state.settings.seed), state.territories.length);
     this.lastEvent = state.eventCount - 1;
+    this.handoffSeen = state.eventCount - 1;
     this.renderer.setState(state);
     this.unsub = session.subscribe((s) => this.onState(s));
     setMusicActive(true);
@@ -181,6 +182,7 @@ export class GameScreen {
   private offFullscreen: () => void = () => {};
 
   destroy() {
+    if (this.handoffTimer) clearTimeout(this.handoffTimer);
     setMusicActive(false);
     if (this.bannerTimer) clearTimeout(this.bannerTimer);
     this.offFullscreen();
@@ -313,6 +315,7 @@ export class GameScreen {
           break;
         }
         case 'battle': {
+          this.lastBattleAt = performance.now();
           // Bigger battles get bigger drums; the result depends on whose side you're on.
           play('battle', { strength: (e.attack + e.defense) / 16 });
           const a = this.player(e.attacker).name;
@@ -620,6 +623,15 @@ export class GameScreen {
     const multi = this.localSeats().length > 1;
     const handKey = act ? `${act.seat}:${act.role}:${s.phase}:${s.year}` : '';
     if (act && multi && act.role !== 'trade' && act.seat !== this.lastSeat && this.handoffDone !== handKey) {
+      // Let a battle (animation, messages, announcements) play out before
+      // the device is handed over and the screen is covered.
+      const wait = Math.max(this.lastBattleAt + 2600 - performance.now(), this.bannerTimer ? 400 : 0);
+      if (wait > 0) {
+        this.el.overlay.hidden = true;
+        this.renderer.setHighlight(this.renderWaiting(this.el.panel));
+        if (!this.handoffTimer) this.handoffTimer = setTimeout(() => ((this.handoffTimer = null), this.render()), wait);
+        return;
+      }
       this.showHandoff(act.seat, act.role, handKey);
       return;
     }
@@ -1863,6 +1875,28 @@ export class GameScreen {
   // -------------------------------------------------------------------------
   // Overlays
 
+  private lastBattleAt = -1e9;
+  private handoffTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Log position at the last handoff, for the "since you last played" recap. */
+  private handoffSeen = -1;
+
+  /** Battles since the device was last passed, as short lines from this lord's view. */
+  private recap(seat: number): HTMLElement | null {
+    const s = this.state;
+    const lines: HTMLElement[] = [];
+    for (const { n, event: e } of s.log) {
+      if (n <= this.handoffSeen || e.kind !== 'battle') continue;
+      const a = this.player(e.attacker).name;
+      const place = this.tname(e.target);
+      const mine = e.defender === seat ? ' (yours)' : '';
+      const result =
+        e.defender === seat ? (e.won ? 'you lost it' : 'you held it') : e.attacker === seat ? (e.won ? 'you took it' : 'you were repelled') : e.won ? `${a} took it` : 'it held';
+      lines.push(h('div.recap-line', h('span.dot', { style: { background: this.color(e.won ? e.attacker : Math.max(e.defender, 0)).fill } }), `${a} attacked ${place}${mine}: ${result}, ${e.attack} vs ${e.defense}`));
+    }
+    if (!lines.length) return null;
+    return h('div.recap', h('div.eyebrow', 'Since the last turn'), lines.slice(-5));
+  }
+
   private showHandoff(seat: number, role: string, key: string) {
     const p = this.player(seat);
     const c = this.color(seat);
@@ -1886,6 +1920,7 @@ export class GameScreen {
         h('div.eyebrow', 'Pass the device'),
         h('h2', `${p.name}'s turn`),
         h('p', what),
+        this.recap(seat),
         h(
           'div.stack',
           h(
@@ -1893,12 +1928,26 @@ export class GameScreen {
             {
               onclick: () => {
                 this.handoffDone = key;
+                this.handoffSeen = this.state.eventCount - 1;
                 this.lastSeat = seat;
                 play('turn', { variant: p.color });
                 this.render();
               },
             },
             `I'm ${p.name}, let's go`,
+          ),
+          // Someone left the table: the computer takes over just that lord.
+          h(
+            'button.quiet',
+            {
+              onclick: () => {
+                if (!confirm(`The computer will play ${p.name}'s lands from now on. Sure?`)) return;
+                this.handoffDone = key;
+                this.act({ type: 'setAi', player: seat, ai: true });
+              },
+            },
+            icon('computer'),
+            `${p.name} has left: let the computer play`,
           ),
         ),
       ),
@@ -1960,6 +2009,29 @@ export class GameScreen {
           ),
           canFullscreen()
             ? h('button', { onclick: () => (close(), toggleFullscreen()) }, icon(isFullscreen() ? 'exitFullscreen' : 'fullscreen'), isFullscreen() ? 'Leave full screen' : 'Full screen')
+            : null,
+          s.phase !== 'over'
+            ? resignable.map((seat) =>
+                h(
+                  'button',
+                  {
+                    onclick: () => {
+                      if (confirm(`The computer will play ${this.player(seat).name}'s lands from now on. Sure?`)) {
+                        close();
+                        this.act({ type: 'setAi', player: seat, ai: true });
+                      }
+                    },
+                  },
+                  icon('computer'),
+                  `Let the computer play for ${this.player(seat).name}`,
+                ),
+              )
+            : null,
+          // Single device: anyone can take a computer-played lord back.
+          s.phase !== 'over' && this.session.kind === 'local'
+            ? s.players
+                .filter((p) => p.alive && p.ai)
+                .map((p) => h('button', { onclick: () => (close(), this.act({ type: 'setAi', player: p.id, ai: false })) }, icon('device'), `Play ${p.name} myself`))
             : null,
           s.phase !== 'over'
             ? resignable.map((seat) =>

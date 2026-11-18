@@ -171,7 +171,9 @@ export type Action =
   | { type: 'attack'; player: number }
   | { type: 'cancel'; player: number }
   | { type: 'moveStockpile'; player: number; to: number }
-  | { type: 'resign'; player: number };
+  | { type: 'resign'; player: number }
+  /** Hand a lord to the computer (ai: true) or take it back (ai: false). */
+  | { type: 'setAi'; player: number; ai: boolean };
 
 export const COLORS = [
   { name: 'Red', fill: '#ef5b5b', dark: '#8f2530' },

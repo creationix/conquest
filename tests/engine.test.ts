@@ -462,3 +462,17 @@ test('a horse can pick up a weapon in the land it rides through', () => {
   assert.equal(next.territories[2].weapon, true);
   assert.equal(next.territories[1].weapon, false);
 });
+
+test('a lord can be handed to the computer mid-turn and taken back', () => {
+  const s = createGame(settings({ selection: 'deal', level: 2 }), humans(3));
+  // Whoever must act now hands their lord over; the computer can then act for them.
+  const who = actors(s)[0];
+  let next = apply(s, { type: 'setAi', player: who, ai: true });
+  assert.equal(next.players[who].ai, true);
+  assert.ok(chooseAction(next, who), 'the computer has a move for that lord');
+  assert.equal(tryApply(next, { type: 'setAi', player: who, ai: true }).error, 'Already played by the computer');
+  next = apply(next, { type: 'setAi', player: who, ai: false });
+  assert.equal(next.players[who].ai, false);
+  // Lands and stockpile are kept throughout.
+  assert.deepEqual(next.territories.map((t) => t.owner), s.territories.map((t) => t.owner));
+});

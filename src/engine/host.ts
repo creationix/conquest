@@ -80,6 +80,9 @@ export class GameHost {
   }
 
   private delayFor(s: GameState): number {
+    // After a battle, give people time to see what happened.
+    const last = s.log[s.log.length - 1]?.event;
+    if (last && (last.kind === 'battle' || last.kind === 'eliminated')) return last.kind === 'battle' && last.looted ? 3800 : 2600;
     switch (s.phase) {
       case 'select':
         return 450;

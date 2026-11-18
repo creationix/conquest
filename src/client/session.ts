@@ -281,13 +281,15 @@ export class NetSession implements Session {
     const room = this.net.room;
     if (!room) return false;
     const p = room.lobby.players[seat];
+    // A lord handed to the computer during the game is no longer this device's.
+    if (room.state?.players[seat]?.ai) return false;
     return !!p && !p.ai && room.seats[seat] === this.net.id;
   }
 
   whereIs(seat: number) {
     const room = this.net.room;
     if (!room) return '';
-    if (room.lobby.players[seat]?.ai) return 'computer';
+    if (room.lobby.players[seat]?.ai || room.state?.players[seat]?.ai) return 'computer';
     const holder = room.seats[seat];
     if (!holder) return 'no device yet';
     if (holder === this.net.id) return 'this device';
