@@ -214,7 +214,7 @@ function forcesFor(s: GameState, p: number, target: number): (Force | null)[] {
     if (!own(via)) continue;
     for (const from of neighbors(s, via)) {
       if (from === target || !own(from) || !T[from].horse || adjacent(s, from, target)) continue;
-      out.push({ kind: 'horse', from, via, weaponFrom: T[from].weapon ? from : undefined });
+      out.push({ kind: 'horse', from, via, weaponFrom: T[from].weapon ? from : T[via].weapon ? via : undefined });
     }
   }
   if (s.settings.level >= 3) {
@@ -223,7 +223,9 @@ function forcesFor(s: GameState, p: number, target: number): (Force | null)[] {
       if (!own(from)) return;
       for (const sea of new Set(t.boats)) {
         if (!seas.includes(sea) || freeBerths(s, target, sea) <= 0) continue;
-        out.push({ kind: 'boat', from, sea, horse: t.horse && !T[target].horse, weapon: t.weapon && !T[target].weapon });
+        // Cargo from a land bordering the target already counts; carry it only from farther away.
+        const far = !adjacent(s, from, target);
+        out.push({ kind: 'boat', from, sea, horse: far && t.horse, weapon: far && t.weapon });
       }
     });
   }

@@ -19,6 +19,7 @@ import {
   neighbors,
   isDoubled,
   needsStockpile,
+  forceBonus,
   previewAttack,
   recipes,
   territoriesOf,
@@ -104,7 +105,11 @@ function freshUi(key = ''): UiState {
 interface ForceOption {
   force: Force | null;
   label: string;
+  /** Where the force comes from. */
+  place?: string;
   bonus: number;
+  /** A caveat, e.g. that a unit is lost because only one fits. */
+  note?: string;
 }
 
 export class GameScreen {
@@ -1357,39 +1362,95 @@ export class GameScreen {
     return out;
   }
 
+  /**
+   * Every reinforcement the rules allow, strongest first within each kind.
+   * Units in lands bordering the target already count, so bringing them adds
+   * no strength, but they move in if you win (and are lost if you lose).
+   */
   private forceOptions(seat: number, target: number): ForceOption[] {
     const s = this.state;
     const T = s.territories;
-    const touching = neighbors(s, target).some((n) => T[n].owner === seat);
+    const mine = (t: number) => T[t].owner === seat;
+    const touching = neighbors(s, target).some(mine);
     const out: ForceOption[] = touching ? [{ force: null, label: 'Just my borders', bonus: 0 }] : [];
+    const add = (force: Force, label: string) => {
+      // "Horse + weapon from X" -> label "Horse + weapon", place "X".
+      const m = /^(.*?) from (.*)$/.exec(label);
+      out.push({ force, label: m ? m[1] : label, place: m ? m[2] : undefined, bonus: forceBonus(s, target, force) });
+    };
+    // Horses from two lands away (optionally picking up a weapon on the way).
     const seenHorse = new Set<number>();
     for (const via of neighbors(s, target)) {
-      if (T[via].owner !== seat) continue;
+      if (!mine(via)) continue;
       for (const from of neighbors(s, via)) {
-        if (from === target || seenHorse.has(from) || T[from].owner !== seat || !T[from].horse || adjacent(s, from, target)) continue;
+        if (from === target || seenHorse.has(from) || !mine(from) || !T[from].horse || adjacent(s, from, target)) continue;
         seenHorse.add(from);
-        out.push({ force: { kind: 'horse', from, via }, label: `Horse from ${this.tname(from)}`, bonus: 1 });
-        if (T[from].weapon) out.push({ force: { kind: 'horse', from, via, weaponFrom: from }, label: `Horse + weapon from ${this.tname(from)}`, bonus: 4 });
+        add({ kind: 'horse', from, via }, `Horse from ${this.tname(from)}`);
+        if (T[from].weapon) add({ kind: 'horse', from, via, weaponFrom: from }, `Horse + weapon from ${this.tname(from)}`);
+        if (T[via].weapon) add({ kind: 'horse', from, via, weaponFrom: via }, `Horse from ${this.tname(from)} + weapon from ${this.tname(via)}`);
       }
     }
+    // Units next door, moving in.
+    for (const from of neighbors(s, target)) {
+      if (!mine(from)) continue;
+      if (T[from].horse) add({ kind: 'horse', from }, `Horse from ${this.tname(from)}`);
+      if (T[from].horse && T[from].weapon) add({ kind: 'horse', from, weaponFrom: from }, `Horse + weapon from ${this.tname(from)}`);
+      if (T[from].weapon) add({ kind: 'weapon', from }, `Weapon from ${this.tname(from)}`);
+    }
+    // Boats, with any cargo from their home land.
     if (s.settings.level >= 3) {
       const seas = info(s).territories[target].seas;
       T.forEach((t, from) => {
         if (t.owner !== seat) return;
         for (const sea of new Set(t.boats)) {
           if (!seas.includes(sea) || freeBerths(s, target, sea) <= 0) continue;
-          out.push({ force: { kind: 'boat', from, sea, horse: false, weapon: false }, label: `Boat from ${this.tname(from)}`, bonus: 2 });
-          const far = !adjacent(s, from, target);
-          const horse = t.horse && !T[target].horse;
-          const weapon = t.weapon && !T[target].weapon;
-          if (far && (horse || weapon)) {
-            const what = [horse ? 'horse' : '', weapon ? 'weapon' : ''].filter(Boolean).join(' + ');
-            out.push({ force: { kind: 'boat', from, sea, horse, weapon }, label: `Boat + ${what} from ${this.tname(from)}`, bonus: 2 + (horse ? 1 : 0) + (weapon ? 3 : 0) });
+          const cargo: [boolean, boolean][] = [[false, false]];
+          if (t.horse) cargo.push([true, false]);
+          if (t.weapon) cargo.push([false, true]);
+          if (t.horse && t.weapon) cargo.push([true, true]);
+          for (const [horse, weapon] of cargo) {
+            const what = ['Boat', horse ? 'horse' : '', weapon ? 'weapon' : ''].filter(Boolean).join(' + ');
+            add({ kind: 'boat', from, sea, horse, weapon }, `${what} from ${this.tname(from)}`);
           }
         }
       });
     }
     return out;
+  }
+
+  /** What a brought force consists of. */
+  private units(force: Force | null): ('horse' | 'weapon' | 'boat')[] {
+    if (!force) return [];
+    if (force.kind === 'weapon') return ['weapon'];
+    if (force.kind === 'horse') return force.weaponFrom !== undefined ? ['horse', 'weapon'] : ['horse'];
+    return ['boat', ...(force.horse ? ['horse' as const] : []), ...(force.weapon ? ['weapon' as const] : [])];
+  }
+
+  /** Plain-language results of this attack, for a win and for a loss. */
+  private outcomeView(target: number, force: Force | null, odds: number) {
+    const s = this.state;
+    const t = s.territories[target];
+    const list = (xs: string[]) => (xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);
+    const yours = this.units(force);
+    // Win: everything in the land becomes yours, and what you brought moves in.
+    const moving = yours.filter((u) => u === 'boat' || !t[u]);
+    const clash = yours.filter((u) => u !== 'boat' && t[u]) as ('horse' | 'weapon')[];
+    const after: string[] = [];
+    if (moving.length) after.push(`Your ${list(moving)} ${moving.length > 1 ? 'move' : 'moves'} in.`);
+    if (clash.length) after.push(`Only one ${list(clash.map((u) => u))} ${clash.length > 1 ? 'fit' : 'fits'} per land: you keep theirs and lose yours.`.replace('Only one horse and weapon', 'Only one horse and one weapon'));
+    const lose: string[] = [];
+    if (yours.length) lose.push(`you lose your ${list(yours)}`);
+    else lose.push('you lose nothing');
+    if (s.conquest.attacksLeft > 1 && s.settings.chance !== 'low') lose.push('your attacks end this turn');
+    const name = (p: number) => (p < 0 ? 'the locals' : this.player(p).name);
+    const hasStuff = t.site || t.city || t.weapon || t.horse || t.boats.length || (t.owner >= 0 && s.players[t.owner].stockpile === target);
+    return h(
+      'div.outcome',
+      h('div', h('b.win', 'If you win: '), `you take the land from ${name(t.owner)}${hasStuff ? ', with:' : '.'}`),
+      hasStuff ? this.stakeView(target, '') : null,
+      after.length ? h('div.after', after.join(' ')) : null,
+      odds < 1 ? h('div', h('b.lose', 'If you lose: '), list(lose), '.') : null,
+    );
   }
 
   private renderConquest(panel: HTMLElement, seat: number): Highlight {
@@ -1495,15 +1556,15 @@ export class GameScreen {
       panel,
       this.who(seat, `${title} · ${this.tname(target)}`, null),
       this.vsView(pv.attack, pv.defense, s.territories[target].owner, pv.possible ? null : 'Attack will fail!'),
-      this.stakeView(target),
       options.length > 1
         ? h(
             'div.choice',
             options.map((o, i) =>
-              h('button', { 'aria-pressed': String(i === ui.force), onclick: () => ((ui.force = i), play('tap'), this.render()) }, h('b', o.label), h('small', o.bonus ? `+${o.bonus}` : 'no extra')),
+              h('button', { 'aria-pressed': String(i === ui.force), onclick: () => ((ui.force = i), play('tap'), this.render()) }, h('b', o.label), h('small', (o.place ? `${o.place} · ` : '') + (o.bonus ? `+${o.bonus}` : o.force ? 'moves in' : 'no extra'))),
             ),
           )
         : null,
+      this.outcomeView(target, opt?.force ?? null, pv.possible ? this.odds(pv.attack, pv.defense) : 0),
       allyNote,
       footer,
     );
@@ -1602,7 +1663,7 @@ export class GameScreen {
   }
 
   /** What changes hands if a territory falls. */
-  private stakeView(t: number) {
+  private stakeView(t: number, label = 'At stake:') {
     const s = this.state;
     const ts = s.territories[t];
     const items: (HTMLElement | string)[] = [];
@@ -1620,7 +1681,7 @@ export class GameScreen {
     }
     return h(
       'div.stake',
-      h('span.muted', 'At stake:'),
+      label ? h("span.muted", label) : null,
       items.length ? items : h('span', 'just the land itself'),
     );
   }

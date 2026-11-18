@@ -427,3 +427,38 @@ test('an offer to several lords goes to the first who accepts', () => {
   assert.equal(next.players[2].stock.gold, 2);
   assert.deepEqual(next.trade.offers, [], 'the copy sent to player 1 was withdrawn');
 });
+
+test('a boat can carry a weapon into a land that already has one', () => {
+  // A and C are across the water from each other; B (the target, armed) is C's neighbor.
+  const map = textMap(['AA..BBCC']);
+  const s = custom(map, [0, 1, 1], 2, { chance: 'low', level: 3 });
+  const sea = analyze(map).territories[0].seas[0];
+  s.territories[0].boats.push(sea);
+  s.territories[0].weapon = true;
+  s.territories[0].horse = true;
+  s.territories[1].weapon = true; // defense 1 + 3 + 1 (C) = 5
+  const force = { kind: 'boat' as const, from: 0, sea, horse: true, weapon: true };
+  assert.equal(attackStrength(s, 0, 1, force), 2 + 1 + 3);
+  let next = apply(s, { type: 'plan', player: 0, target: 1, force });
+  next = apply(next, { type: 'attack', player: 0 });
+  assert.equal(next.territories[1].owner, 0);
+  assert.equal(next.territories[1].weapon, true, 'one weapon in the conquered land');
+  assert.equal(next.territories[0].weapon, false, 'the carried weapon left home');
+  assert.equal(next.territories[1].horse, true);
+});
+
+test('a horse can pick up a weapon in the land it rides through', () => {
+  // A (horse) -> B (weapon) -> C (target).
+  const map = textMap(['AABBCC']);
+  const s = custom(map, [0, 0, 1], 2, { chance: 'low' });
+  s.territories[0].horse = true;
+  s.territories[1].weapon = true;
+  s.territories[2].weapon = true; // defense 1 + 3
+  const force = { kind: 'horse' as const, from: 0, via: 1, weaponFrom: 1 };
+  // B already borders C, so its weapon already counts: the horse adds 1.
+  assert.equal(attackStrength(s, 0, 2, force), 1 + 3 + 1);
+  const next = apply(apply(s, { type: 'plan', player: 0, target: 2, force }), { type: 'attack', player: 0 });
+  assert.equal(next.territories[2].owner, 0);
+  assert.equal(next.territories[2].weapon, true);
+  assert.equal(next.territories[1].weapon, false);
+});

@@ -362,3 +362,16 @@ dialog::backdrop { background: #04131dbb; }
 .seg button .dot { width: 10px; height: 10px; margin-right: 2px; }
 .game.column .trade-cell { gap: 2px 4px; }
 .game.column .trade-cell .have { font-size: 10.5px; width: 100%; padding-left: 4px; }
+/* Attack outcome summary. */
+.outcome { margin-top: 8px; font-size: 13.5px; line-height: 1.45; color: var(--muted); display: grid; gap: 3px; }
+.outcome .win { color: var(--ok); }
+.outcome .lose { color: var(--danger); }
+.outcome .stake { margin-top: 0; padding-left: 12px; }
+.outcome .after { padding-left: 12px; }
+/* Column prompts: the main action full width, secondary actions side by side. */
+.game.column .panel .actions { flex-direction: row; flex-wrap: wrap; }
+.game.column .panel .actions > button { flex: 1 1 0; min-width: 0; padding-left: 8px; padding-right: 8px; }
+.game.column .panel .actions > button.primary { order: -1; flex: 1 1 100%; }
+.game.column .panel .actions > span.muted { flex: 1 1 100%; order: -2; }
+.game.column .panel .choice button b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.game.column .panel .choice button small { white-space: nowrap; flex-shrink: 0; }
