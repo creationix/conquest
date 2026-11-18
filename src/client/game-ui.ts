@@ -291,6 +291,11 @@ export class GameScreen {
           this.toast(`${this.player(e.player).name} built a ${ITEM_LABEL[e.item].toLowerCase()} in ${this.tname(e.territory)}`, false, e.player);
           break;
         case 'trade':
+          // An accepted offer is done: clear the amounts for the next deal.
+          if (local(e.from)) {
+            this.ui.give = emptyStock();
+            this.ui.get = emptyStock();
+          }
           play('trade');
           this.toast(`${this.player(e.from).name} and ${this.player(e.to).name} made a trade`, false, e.from);
           break;
@@ -302,6 +307,7 @@ export class GameScreen {
           }
           break;
         case 'declined':
+          if (local(e.from)) this.lastDeclined = e.to;
           if (local(e.from) || local(e.to)) {
             play('decline');
             this.toast(`${this.player(e.to).name} turned down ${this.player(e.from).name}'s offer`, false, e.to);
@@ -874,8 +880,10 @@ export class GameScreen {
         seat,
         `${p.name}, place your stockpile`,
         lost
-          ? 'Your stockpile was captured! Choose where to keep a new one. This is free: it does not use up your turn.'
-          : 'Your stockpile holds all your gold, iron, coal and timber. If an enemy conquers that land, they take everything. Keep it safe!',
+          ? this.state.phase === 'production'
+            ? 'You have new goods but no stockpile (yours was captured). Choose where to keep them.'
+            : 'You have goods but no stockpile. Choose where to keep them; this does not use up your turn.'
+          : 'Your first harvest is in! Choose where to keep your stockpile: it holds all your gold, iron, coal and timber. If an enemy conquers that land, they take everything.',
       ),
       sel !== null ? this.territoryLine(sel) : null,
       h(
@@ -1119,21 +1127,21 @@ export class GameScreen {
       );
     const empty = GOODS.every((g) => ui.give[g] === 0 && ui.get[g] === 0);
     const togglePartner = (id: number) => {
-      ui.tradeTo = ui.tradeTo.includes(id) ? ui.tradeTo.filter((x) => x !== id) : [...ui.tradeTo, id];
-      ui.tradeCleared = !ui.tradeTo.length;
+      // One partner at a time; the amounts stay, so the same deal can be tried with someone else.
+      ui.tradeTo = [id];
+      ui.tradeCleared = false;
       // Asking for more than the new partners have makes no sense.
       for (const g of GOODS) ui.get[g] = Math.min(ui.get[g], Math.max(0, ...ui.tradeTo.map((x) => this.player(x).stock[g])));
       this.render();
     };
-    const everyone = others.length > 1 && others.every((o) => partners.includes(o.id));
     const theyLabel = partners.length === 1 ? `${this.player(partners[0]).name} gives` : partners.length ? 'They give' : 'They give';
+    // After a decline the same amounts are still set: offer again in one tap, or tweak first.
+    const declinedBy = partners.length === 1 && this.lastDeclined === partners[0];
     const offerLabel = partnerLocal
       ? 'Make this trade'
-      : everyone
-        ? 'Offer to everyone'
-        : partners.length
-          ? `Offer to ${partners.map((x) => this.player(x).name).join(' and ')}`
-          : 'Offer';
+      : partners.length
+        ? `${declinedBy ? 'Offer again to' : 'Offer to'} ${this.player(partners[0]).name}`
+        : 'Offer';
     const composer = h(
       'div',
       h(
@@ -1145,23 +1153,9 @@ export class GameScreen {
           others.map((o) =>
             h('button', { 'aria-pressed': String(partners.includes(o.id)), onclick: () => togglePartner(o.id) }, h('span.dot', { style: { background: this.color(o.id).fill } }), o.name),
           ),
-          others.length > 1
-            ? h(
-                'button',
-                {
-                  'aria-pressed': String(everyone),
-                  onclick: () => {
-                    ui.tradeTo = everyone ? [] : others.map((o) => o.id);
-                    ui.tradeCleared = !ui.tradeTo.length;
-                    this.render();
-                  },
-                },
-                'Everyone',
-              )
-            : null,
+
         ),
       ),
-      partners.length > 1 ? h('p', { style: { fontSize: '12.5px' } }, 'The same offer goes to each of them; the first to accept gets it.') : null,
       h(
         'div.trade-grid',
         h('span'),
@@ -1223,9 +1217,10 @@ export class GameScreen {
     const get = { ...this.ui.get };
     const err = this.session.dispatch({ type: 'offer', player: seat, to: to.length === 1 ? to[0] : to, give, get });
     if (err) return this.toast(err, true);
-    this.ui.give = emptyStock();
-    this.ui.get = emptyStock();
+    this.lastDeclined = -1;
     if (local) {
+      this.ui.give = emptyStock();
+      this.ui.get = emptyStock();
       // Both people are holding this device and agreed out loud.
       const e2 = this.session.dispatch({ type: 'respond', player: to[0], offer: id, accept: true });
       if (e2) this.toast(e2, true);
@@ -1933,9 +1928,9 @@ export class GameScreen {
       role === 'ally' && plan
         ? `${this.player(currentPlayer(s)).name} is attacking ${this.tname(plan.target)} and needs your answer.`
         : role === 'place'
-          ? s.phase === 'production'
-            ? 'Time to place your stockpile.'
-            : 'Your stockpile was captured. Choose a new home for it, then take your turn.'
+          ? s.year === 1
+            ? 'Your first harvest is in: choose where to keep your stockpile.'
+            : 'You have goods but no stockpile: choose where to keep it.'
           : `It's your turn: ${PHASE_NAMES[s.phase].toLowerCase()}.`;
     this.el.overlay.className = 'overlay';
     this.el.overlay.hidden = false;
@@ -1983,6 +1978,8 @@ export class GameScreen {
   }
 
   private gameOverAt = 0;
+  /** Who last turned down this device's offer (for "Offer again"). */
+  private lastDeclined = -1;
 
   private showGameOver() {
     // Let the lands change color first (when the win just happened).

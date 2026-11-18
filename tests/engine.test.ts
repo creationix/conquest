@@ -12,10 +12,11 @@ import {
   defense,
   emptyStock,
   freeBerths,
+  needsStockpile,
   tryApply,
 } from '../src/engine/rules.ts';
 import { chooseAction } from '../src/engine/ai.ts';
-import type { GameState, PlayerSetup, Settings } from '../src/engine/types.ts';
+import { GOODS, type GameState, type PlayerSetup, type Settings } from '../src/engine/types.ts';
 
 const humans = (n: number, ai = false): PlayerSetup[] =>
   Array.from({ length: n }, (_, i) => ({ name: 'P' + i, color: i, ai }));
@@ -129,37 +130,51 @@ test('capturing a stockpile takes the treasure', () => {
   assert.equal(next.players[1].stockpile, -1);
 });
 
-test('a looted lord places a new stockpile at the start of their next turn, for free', () => {
+test('a looted lord places a new stockpile once they have goods again', () => {
   const map = textMap(['AABBCC']);
   const s = custom(map, [0, 1, 1], 2, { chance: 'low' });
   s.players[0].stockpile = 0;
   s.players[1].stockpile = 1;
   s.players[1].stock.gold = 5;
+  s.territories[2].site = 'gold';
   s.territories[0].weapon = true;
   let next = apply(apply(s, { type: 'plan', player: 0, target: 1, force: null }), { type: 'attack', player: 0 });
   assert.equal(next.players[0].stock.gold, 5);
   assert.equal(next.players[1].stockpile, -1);
-  // The attacker carries on undisturbed, then ends the turn.
-  assert.deepEqual(actors(next), [0]);
+  // Nothing to store, so no placement: player 1 just plays on.
   next = apply(next, { type: 'done', player: 0 });
   assert.equal(currentPlayer(next), 1);
-  assert.equal(tryApply(next, { type: 'done', player: 1 }).error, 'First choose where to keep your new stockpile');
+  assert.equal(needsStockpile(next, 1), false);
+  next = apply(next, { type: 'done', player: 1 });
+  // Year 2: development, then production gives player 1 gold to store.
+  while (next.phase === 'development') next = apply(next, { type: 'done', player: currentPlayer(next) });
+  assert.equal(next.phase, 'production');
+  assert.deepEqual(next.placing, [1]);
+  assert.equal(next.players[1].stock.gold, 1, 'production arrived before placing');
   next = apply(next, { type: 'placeStockpile', player: 1, territory: 2 });
   assert.equal(next.players[1].stockpile, 2);
-  assert.equal(currentPlayer(next), 1, 'still their turn');
-  assert.equal(next.conquest.attacksLeft, 2, 'no attack used');
+  assert.notEqual(next.phase, 'production');
 });
 
-test('placing a new stockpile during shipment does not use the move', () => {
+test('goods from a trade without a stockpile are placed at the start of the next turn, for free', () => {
   const map = textMap(['AABBCC']);
   const s = custom(map, [0, 0, 1], 2, { chance: 'low' });
   s.phase = 'shipment';
   s.players[0].stockpile = -1;
+  s.players[0].stock.iron = 2; // e.g. received in a trade
+  assert.equal(tryApply(s, { type: 'done', player: 0 }).error, 'First choose where to keep your new stockpile');
   let next = apply(s, { type: 'placeStockpile', player: 0, territory: 0 });
   assert.equal(currentPlayer(next), 0);
   next = apply(next, { type: 'ship', player: 0, move: { kind: 'stockpile', to: 1 } });
   assert.equal(next.players[0].stockpile, 1);
   assert.equal(currentPlayer(next), 1);
+});
+
+test('year 1: production comes first, then lords with goods place their stockpiles', () => {
+  const s = createGame(settings({ selection: 'deal', level: 2 }), humans(3));
+  assert.equal(s.phase, 'production');
+  for (const p of s.placing) assert.ok(GOODS.some((g) => s.players[p].stock[g] > 0), 'only lords with goods place');
+  assert.ok(s.log.some((e) => e.event.kind === 'produce'), 'production already happened');
 });
 
 test('a horse rides in from two territories away', () => {
@@ -260,6 +275,7 @@ test('building costs follow the level', () => {
 test('trades swap goods when accepted', () => {
   const s = createGame(settings({ selection: 'deal' }), humans(3));
   s.phase = 'trade';
+  s.players.forEach((p) => (p.stock = emptyStock()));
   s.players[0].stock.gold = 2;
   s.players[1].stock.iron = 3;
   let next = apply(s, { type: 'offer', player: 0, to: 1, give: { ...emptyStock(), gold: 1 }, get: { ...emptyStock(), iron: 2 } });

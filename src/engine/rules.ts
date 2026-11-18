@@ -178,10 +178,16 @@ export function isDoubled(s: GameState, t: number): boolean {
  * A lord whose stockpile was captured places a new one at the start of their
  * next turn. It is free: it does not use up a move or an attack.
  */
+/** Holding goods but no stockpile to keep them in. */
+function homeless(s: GameState, p: number): boolean {
+  const player = s.players[p];
+  return !!player && player.alive && player.stockpile < 0 && GOODS.some((g) => player.stock[g] > 0) && territoriesOf(s, p).length > 0;
+}
+
 export function needsStockpile(s: GameState, p: number): boolean {
   if (s.phase !== 'development' && s.phase !== 'shipment' && s.phase !== 'conquest') return false;
-  const player = s.players[p];
-  return !!player && player.alive && player.stockpile < 0 && currentPlayer(s) === p && territoriesOf(s, p).length > 0;
+  // E.g. goods received in a trade after the stockpile was captured.
+  return currentPlayer(s) === p && homeless(s, p);
 }
 
 export function territoriesOf(s: GameState, p: number): number[] {
@@ -358,11 +364,12 @@ function beginPhase(s: GameState, phase: Phase): void {
         return nextPhase(s);
       }
       emit(s, { kind: 'phase', phase });
-      s.placing = s.order.filter((p) => s.players[p].alive && s.players[p].stockpile < 0 && territoriesOf(s, p).length > 0);
-      if (!s.placing.length) {
-        produce(s);
-        return nextPhase(s);
-      }
+      // Produce first; then any lord holding goods without a stockpile
+      // chooses where to keep them (as in the original, right after the
+      // first production).
+      produce(s);
+      s.placing = s.order.filter((p) => homeless(s, p));
+      if (!s.placing.length) return nextPhase(s);
       return;
     }
     case 'trade': {
@@ -443,7 +450,6 @@ function produce(s: GameState) {
   terr.forEach((t, id) => {
     if (t.owner < 0 || !t.site || t.site === 'horses') return;
     const owner = s.players[t.owner];
-    if (owner.stockpile < 0) return;
     const amount = isDoubled(s, id) ? 2 : 1;
     owner.stock[t.site] += amount;
     emit(s, { kind: 'produce', player: t.owner, territory: id, good: t.site, amount });
@@ -769,7 +775,6 @@ export function apply(state: GameState, action: Action): GameState {
           if (!seekTurn(s, s.turn + 1) && !seekTurn(s, 0)) nextPhase(s);
         } else advanceTurn(s);
       } else if (s.phase === 'production' && !s.placing.length) {
-        produce(s);
         nextPhase(s);
       } else if (s.phase === 'trade') {
         maybeEndTrade(s);
@@ -806,10 +811,8 @@ export function apply(state: GameState, action: Action): GameState {
       s.placing = s.placing.filter((x) => x !== p);
       emit(s, { kind: 'stockpile', player: p, territory: action.territory });
       // Mid-turn placement is free: the turn simply carries on.
-      if (s.phase === 'production' && !s.placing.length) {
-        produce(s);
-        nextPhase(s);
-      }
+      // Production already ran; once everyone has placed, move on.
+      if (s.phase === 'production' && !s.placing.length) nextPhase(s);
       break;
     }
     case 'build': {
