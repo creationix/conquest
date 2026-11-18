@@ -1,7 +1,7 @@
 // Offline support. On install, the page and every file it references are
 // cached. Afterwards: try the network for the page (so updates arrive), fall
 // back to the cache when offline; hashed build assets come from the cache.
-const CACHE = 'conquest-v2';
+const CACHE = 'conquest-v3';
 const CORE = ['./', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {
@@ -34,7 +34,7 @@ self.addEventListener('fetch', (e) => {
   if (url.pathname.endsWith('/ws') || url.pathname.includes('/api/')) return;
   if (url.pathname.includes('/assets/')) {
     e.respondWith(
-      caches.match(req).then(
+      caches.match(req, { ignoreVary: true }).then(
         (hit) =>
           hit ||
           fetch(req).then((res) => {
@@ -68,6 +68,6 @@ self.addEventListener('fetch', (e) => {
         }
         return res;
       })
-      .catch(() => caches.match(req, { ignoreSearch: true }).then((hit) => hit || (req.mode === 'navigate' ? caches.match('./') : Response.error()))),
+      .catch(() => caches.match(req, { ignoreSearch: true, ignoreVary: true }).then((hit) => hit || (req.mode === 'navigate' ? caches.match('./', { ignoreVary: true }) : Response.error()))),
   );
 });

@@ -2026,6 +2026,8 @@ export class GameScreen {
       h(
         'div',
         h('div.row', h('h2', { style: { margin: '0' } }, 'Menu'), h('span.spacer'), h('button.quiet', { onclick: close, 'aria-label': 'Close' }, icon('close'))),
+        // Network games: the code, so a device that dropped out can rejoin.
+        this.session.code ? h('p.muted', { style: { margin: '8px 0 0' } }, 'Game code: ', h('b.code-inline', this.session.code)) : null,
         h(
           'div',
           { style: { display: 'grid', gap: '10px', marginTop: '16px' } },

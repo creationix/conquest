@@ -3,7 +3,7 @@
 // LAN server, which runs the engine for every device at the table.
 
 import { GameHost } from '../engine/host.ts';
-import type { ClientMessage, Lobby, RoomSummary, RoomView, ServerMessage } from '../engine/protocol.ts';
+import type { Link } from './peer.ts';
 import type { Action, GameState } from '../engine/types.ts';
 
 export interface Session {
@@ -15,6 +15,8 @@ export interface Session {
   whereIs(seat: number): string;
   dispatch(action: Action): string | undefined;
   subscribe(fn: (state: GameState) => void): () => void;
+  /** Network games: the code other devices use to join. */
+  readonly code?: string;
   /** Called for errors that come back asynchronously (network). */
   onError?: (message: string) => void;
   close(): void;
@@ -121,148 +123,14 @@ export function setDeviceName(name: string) {
   }
 }
 
-/** Is this page served by a Conquest LAN server? */
-export async function detectServer(): Promise<{ serverName: string; addresses: string[] } | null> {
-  try {
-    const res = await fetch('./api/info', { cache: 'no-store' });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data && data.app === 'conquest' ? data : null;
-  } catch {
-    return null;
-  }
-}
-
-type Listener = (msg: ServerMessage) => void;
-
-/** One WebSocket to the server, reconnecting with backoff and re-joining its room. */
-export class NetClient {
-  id = clientId();
-  name = deviceName();
-  room: RoomView | null = null;
-  rooms: RoomSummary[] = [];
-  connected = false;
-  private ws: WebSocket | null = null;
-  private listeners = new Set<Listener>();
-  private retry = 500;
-  private closed = false;
-  private wantRoom: string | null = null;
-
-  constructor() {
-    try {
-      this.wantRoom = sessionStorage.getItem('conquest-room');
-    } catch {
-      /* ignore */
-    }
-    this.connect();
-  }
-
-  private url() {
-    const loc = window.location;
-    const base = loc.pathname.replace(/[^/]*$/, '');
-    return (loc.protocol === 'https:' ? 'wss://' : 'ws://') + loc.host + base + 'ws';
-  }
-
-  private connect() {
-    if (this.closed) return;
-    const ws = new WebSocket(this.url());
-    this.ws = ws;
-    ws.onopen = () => {
-      this.connected = true;
-      this.retry = 500;
-      this.send({ t: 'hello', clientId: this.id, name: this.name });
-      if (this.wantRoom) this.send({ t: 'join', room: this.wantRoom });
-      this.emit({ t: 'welcome', serverName: '' });
-    };
-    ws.onmessage = (e) => {
-      let msg: ServerMessage;
-      try {
-        msg = JSON.parse(String(e.data));
-      } catch {
-        return;
-      }
-      if (msg.t === 'room') {
-        this.room = msg.room;
-        this.remember(msg.room.id);
-      } else if (msg.t === 'state' && this.room) {
-        this.room = { ...this.room, state: msg.state };
-      } else if (msg.t === 'rooms') {
-        this.rooms = msg.rooms;
-      } else if (msg.t === 'left') {
-        this.room = null;
-        this.remember(null);
-      } else if (msg.t === 'error' && msg.message === 'That game is gone') {
-        this.remember(null);
-      }
-      this.emit(msg);
-    };
-    ws.onclose = () => {
-      this.connected = false;
-      this.ws = null;
-      this.emit({ t: 'error', message: 'Reconnecting…' });
-      if (!this.closed) setTimeout(() => this.connect(), this.retry);
-      this.retry = Math.min(this.retry * 2, 5000);
-    };
-  }
-
-  private remember(room: string | null) {
-    this.wantRoom = room;
-    try {
-      if (room) sessionStorage.setItem('conquest-room', room);
-      else sessionStorage.removeItem('conquest-room');
-    } catch {
-      /* ignore */
-    }
-  }
-
-  private emit(msg: ServerMessage) {
-    for (const fn of this.listeners) fn(msg);
-  }
-
-  on(fn: Listener): () => void {
-    this.listeners.add(fn);
-    return () => this.listeners.delete(fn);
-  }
-
-  send(msg: ClientMessage) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
-  }
-
-  rename(name: string) {
-    this.name = name;
-    setDeviceName(name);
-    this.send({ t: 'hello', clientId: this.id, name });
-  }
-
-  create(name: string, lobby: Lobby) {
-    this.send({ t: 'create', name, lobby });
-  }
-
-  join(room: string) {
-    this.remember(room);
-    this.send({ t: 'join', room });
-  }
-
-  leave() {
-    this.remember(null);
-    this.room = null;
-    this.send({ t: 'leave' });
-  }
-
-  close() {
-    this.closed = true;
-    this.ws?.close();
-  }
-}
-
 export class NetSession implements Session {
   kind = 'net' as const;
   onError?: (message: string) => void;
   private listeners = new Set<(state: GameState) => void>();
   private off: () => void;
 
-  net: NetClient;
-  constructor(net: NetClient) {
+  net: Link;
+  constructor(net: Link) {
     this.net = net;
     this.off = net.on((msg) => {
       if ((msg.t === 'state' || msg.t === 'room') && net.room?.state) {
@@ -275,6 +143,10 @@ export class NetSession implements Session {
 
   get state(): GameState {
     return this.net.room!.state!;
+  }
+
+  get code(): string | undefined {
+    return this.net.room?.id;
   }
 
   controls(seat: number) {

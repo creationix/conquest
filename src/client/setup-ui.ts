@@ -66,9 +66,10 @@ function icon(name: IconName) {
 
 export interface HomeActions {
   resume: (() => void) | null;
+  resumeHosted: (() => void) | null;
   newGame: () => void;
-  network: (() => void) | null;
-  networkHelp: () => void;
+  host: () => void;
+  join: () => void;
   rules: () => void;
 }
 
@@ -83,15 +84,14 @@ export function showHome(root: HTMLElement, actions: HomeActions): () => void {
     h(
       'div.stack',
       actions.resume ? h('button.primary', { onclick: actions.resume }, 'Continue game') : null,
-      h('button', { class: actions.resume ? '' : 'primary', onclick: actions.newGame }, 'New game on this device'),
-      actions.network
-        ? h('button', { onclick: actions.network }, icon('device'), 'Play with other devices')
-        : h('button', { onclick: actions.networkHelp }, icon('device'), 'Play with other devices'),
+      actions.resumeHosted ? h('button.primary', { onclick: actions.resumeHosted }, icon('device'), 'Continue hosted game') : null,
+      h('button', { class: actions.resume || actions.resumeHosted ? '' : 'primary', onclick: actions.newGame }, 'New game on this device'),
+      h('div.row', { style: { gap: '8px', flexWrap: 'nowrap' } }, h('button', { style: { flex: '1' }, onclick: actions.host }, icon('device'), 'Host a game'), h('button', { style: { flex: '1' }, onclick: actions.join }, 'Join a game')),
       h('button.quiet', { onclick: actions.rules }, icon('scroll'), 'How to play'),
     ),
     h('div.row', { style: { marginTop: '14px', gap: '8px' } }, audioButton('sound'), audioButton('music')),
     install.el,
-    h('div.foot', 'Pass and play on one device, or connect phones, tablets and laptops on your Wi-Fi.'),
+    h('div.foot', 'Pass and play on one device, or host a game and share its code with other phones, tablets and laptops.'),
   );
   mount(root, h('div.screen.home', canvas, h('div.veil'), card));
 
@@ -409,22 +409,57 @@ export function renderSetup(root: HTMLElement, o: SetupOptions): { update: (o2: 
 }
 
 // ---------------------------------------------------------------------------
-// Network: room list
+// Several devices: the host's code banner, the join screen, connecting.
 
-export interface NetScreenOptions {
-  serverName: string;
-  addresses: string[];
-  deviceName: string;
-  rooms: import('../engine/protocol.ts').RoomSummary[];
-  connected: boolean;
-  onRename: (name: string) => void;
-  onHost: () => void;
-  onJoin: (id: string) => void;
-  onBack: () => void;
+/** The game code, big, for the host to read out; with the connection status. */
+export function hostBanner(code: string, status: string) {
+  const el = h('div.card.code-card');
+  const update = (c: string, st: string, detail?: string) => {
+    mount(
+      el,
+      h('div.eyebrow', 'Game code'),
+      h('div.game-code', c),
+      h(
+        'p.muted',
+        st === 'online'
+          ? 'Others tap "Join a game" on their phone, tablet or laptop and enter this code.'
+          : detail || (st === 'offline' ? 'Cannot reach the game-code service. Check the internet connection.' : 'Getting the code ready…'),
+      ),
+      h('div.code-status', { class: st }, st === 'online' ? 'Ready for players' : st === 'offline' ? 'Offline' : 'Connecting…'),
+    );
+  };
+  update(code, status);
+  return { el, update };
 }
 
-export function renderNetwork(root: HTMLElement, o: NetScreenOptions) {
-  const rooms = o.rooms.filter((r) => !r.over);
+export function renderJoin(
+  root: HTMLElement,
+  o: { code: string; deviceName: string; onJoin: (code: string, name: string) => void; onBack: () => void },
+) {
+  const codeInput = h('input.code-input', {
+    value: o.code,
+    maxLength: 4,
+    autocapitalize: 'characters',
+    autocomplete: 'off',
+    spellcheck: false,
+    inputMode: 'text',
+    placeholder: 'ABCD',
+    'aria-label': 'Game code',
+  }) as HTMLInputElement;
+  const nameInput = h('input', { value: o.deviceName, maxLength: 24, 'aria-label': 'Device name' }) as HTMLInputElement;
+  const go = h('button.primary', { style: { fontSize: '18px', padding: '14px 26px', width: '100%' } }, 'Join') as HTMLButtonElement;
+  const sync = () => {
+    codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+    go.disabled = codeInput.value.length !== 4;
+  };
+  const submit = () => {
+    sync();
+    if (!go.disabled) o.onJoin(codeInput.value, nameInput.value.trim() || 'Device');
+  };
+  codeInput.addEventListener('input', sync);
+  codeInput.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
+  go.addEventListener('click', submit);
+  sync();
   mount(
     root,
     h(
@@ -433,73 +468,33 @@ export function renderNetwork(root: HTMLElement, o: NetScreenOptions) {
         'div.scroll',
         h(
           'div.sheet',
+          { style: { maxWidth: '460px' } },
           h('div.topbar', h('button.quiet', { onclick: o.onBack }, '‹ Home')),
-          h('h1', 'Play with other devices'),
-          h(
-            'div.card',
-            h('p', { style: { margin: '0 0 6px' } }, 'Everyone on the same Wi-Fi opens:'),
-            o.addresses.length ? o.addresses.map((a) => h('div.big-url', a)) : h('div.big-url', location.origin + '/'),
-            h('p.muted', { style: { fontSize: '13px', margin: '8px 0 0' } }, `Server: ${o.serverName}${o.connected ? '' : ' · connecting…'}`),
-          ),
+          h('h1', 'Join a game'),
+          h('div.card', h('label', { class: 'muted' }, 'Game code from the host'), codeInput, h('p.muted', { style: { fontSize: '13px', margin: '10px 0 0' } }, 'The host sees it after tapping "Host a game".')),
           h('h2', 'This device'),
-          h(
-            'div.card',
-            h(
-              'div.row',
-              h('input', {
-                value: o.deviceName,
-                maxLength: 24,
-                style: { flex: '1', background: '#071a23', border: '1px solid #ffffff22', borderRadius: '11px', padding: '10px 12px' },
-                'aria-label': 'Device name',
-                onchange: (e: Event) => o.onRename((e.target as HTMLInputElement).value.trim() || 'Device'),
-              }),
-            ),
-            h('p.muted', { style: { fontSize: '13px', margin: '8px 0 0' } }, "A name like \"Mom's phone\" helps everyone see who is playing where."),
-          ),
-          h('h2', 'Games on this network'),
-          h(
-            'div.card',
-            rooms.length
-              ? rooms.map((r) =>
-                  h(
-                    'div.room',
-                    h(
-                      'div',
-                      { style: { flex: '1' } },
-                      h('b', r.name),
-                      h('div.muted', { style: { fontSize: '13px' } }, r.started ? `Year ${r.year} · in progress` : 'Getting ready', ' · ', r.players.map((p) => p.name).join(', ')),
-                      h('div.dots', { style: { marginTop: '6px' } }, r.players.map((p) => h('span.dot', { style: { background: COLORS[p.color]?.fill } }))),
-                    ),
-                    h('button.primary', { onclick: () => o.onJoin(r.id) }, r.started ? 'Watch / rejoin' : 'Join'),
-                  ),
-                )
-              : h('p.muted', { style: { margin: '0' } }, 'No games yet. Host one!'),
-          ),
-          h('div.row', { style: { marginTop: '18px' } }, h('span.spacer'), h('button.primary', { onclick: o.onHost }, icon('plus'), 'Host a new game')),
+          h('div.card', nameInput, h('p.muted', { style: { fontSize: '13px', margin: '8px 0 0' } }, 'A name like "Mom\'s phone" helps everyone see who is playing where.')),
+          h('div', { style: { marginTop: '20px' } }, go),
         ),
       ),
     ),
   );
+  setTimeout(() => (o.code ? nameInput : codeInput).focus(), 50);
 }
 
-export function renderNetworkHelp(root: HTMLElement, onBack: () => void) {
+export function showConnecting(root: HTMLElement, code: string, status: string, onCancel: () => void) {
   mount(
     root,
     h(
       'div.screen',
       h(
-        'div.scroll',
+        'div.overlay',
         h(
-          'div.sheet',
-          h('div.topbar', h('button.quiet', { onclick: onBack }, '‹ Home')),
-          h('h1', 'Play with other devices'),
-          h(
-            'div.card',
-            h('p', { style: { marginTop: '0' } }, 'To connect several phones, tablets and laptops, one computer on your Wi-Fi runs the Conquest server:'),
-            h('pre.notice', { style: { userSelect: 'text', whiteSpace: 'pre-wrap' } }, 'git clone https://github.com/creationix/conquest\ncd conquest\nnpm install\nnpm start'),
-            h('p', 'It prints an address like http://192.168.1.20:8080/. Open that on every device and choose "Play with other devices".'),
-            h('p.muted', { style: { fontSize: '13px' } }, 'You can also add that address to your home screen. Each device claims the lords it will play; one device can hold several lords, so pass-and-play and multiple devices mix freely.'),
-          ),
+          'div.card',
+          h('div.spinner', { style: { margin: '4px auto 14px', width: '34px', height: '34px' } }),
+          h('h2', status === 'offline' ? 'Waiting for the internet…' : status === 'reconnecting' ? 'Reconnecting…' : `Joining ${code}…`),
+          h('p', status === 'offline' ? 'Cannot reach the game-code service yet; still trying.' : 'Connecting to the host\'s device.'),
+          h('div.stack', h('button', { onclick: onCancel }, 'Cancel')),
         ),
       ),
     ),

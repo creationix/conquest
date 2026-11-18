@@ -388,3 +388,15 @@ dialog::backdrop { background: #04131dbb; }
 .offer.ask { flex-direction: column; align-items: stretch; gap: 6px; }
 .offer.ask .row { gap: 6px; }
 .offer.ask .row button { flex: 1 1 auto; }
+/* Hosting and joining by game code. */
+.code-card { text-align: center; margin-bottom: 8px; }
+.game-code { font-size: 56px; font-weight: 850; letter-spacing: 14px; color: var(--accent); line-height: 1.1; margin: 4px 0 2px 14px; font-variant-numeric: tabular-nums; user-select: text; -webkit-user-select: text; }
+.code-card p { margin: 6px 0 8px; font-size: 14px; }
+.code-status { display: inline-block; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 99px; background: #ffffff14; color: var(--muted); }
+.code-status.online { background: #2f6b3f; color: #d8ffe0; }
+.code-status.offline { background: #6b2f35; color: #ffd9dc; }
+.code-input { display: block; width: 100%; margin-top: 8px; font-size: 44px; font-weight: 850; letter-spacing: 16px; text-align: center; text-transform: uppercase;
+  background: #071a23; border: 2px solid #ffffff22; border-radius: 16px; padding: 10px 0 10px 16px; color: var(--accent); }
+.code-input:focus { border-color: var(--accent); outline: none; }
+.sheet input:not(.code-input) { width: 100%; background: #071a23; border: 1px solid #ffffff22; border-radius: 11px; padding: 10px 12px; }
+.code-inline { color: var(--accent); letter-spacing: 3px; font-size: 18px; }

@@ -2,26 +2,25 @@
   "name": "conquest",
   "version": "2.0.0",
   "private": true,
-  "description": "A family-friendly remake of Lords of Conquest: pass-and-play plus LAN multi-device play.",
+  "description": "A family strategy game of land, wealth and war: pass and play, or host a game and join it from other devices with a code.",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host",
-    "serve": "node server/server.ts",
-    "start": "npm run build && node server/server.ts",
+    "preview": "vite preview --host --port 8080",
     "test": "node --test tests/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "signal": "peerjs --port 9000 --path /"
   },
   "engines": {
     "node": ">=22.18"
   },
   "dependencies": {
-    "ws": "^8.23.0"
+    "peerjs": "^1.5.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "@types/ws": "^8.18.2",
+    "peer": "^1.0.2",
     "typescript": "^5.9.3",
     "vite": "^8.3.8"
   }
