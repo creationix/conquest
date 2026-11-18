@@ -28,6 +28,7 @@ export const ICONS = {
   fullscreen: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5',
   exitFullscreen: 'M3 8h5V3m8 0v5h5M3 16h5v5m13-5h-5v5',
   download: 'M12 3v12m-5-5 5 5 5-5M4 20h16',
+  bell: 'M12 3a5 5 0 0 0-5 5v4l-2 4h14l-2-4V8a5 5 0 0 0-5-5Zm-2 15a2 2 0 0 0 4 0Z',
   chevronUp: 'm6 15 6-6 6 6',
   chevronDown: 'm6 9 6 6 6-6',
   trade: 'M4 8h13l-3.5-3.5M20 16H7l3.5 3.5',

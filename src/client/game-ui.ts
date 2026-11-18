@@ -36,7 +36,7 @@ import {
   type Phase,
   type Stock,
 } from '../engine/types.ts';
-import { cycle, level, levelLabel, play, setMood } from './audio.ts';
+import { cycle, level, levelLabel, play, setMood, setMusicActive } from './audio.ts';
 import { closeDialog, h, mount, openDialog, svgIcon } from './dom.ts';
 import { GOOD_LABELS, ICONS, STROKED, type IconName } from './icons.ts';
 import { MapRenderer, type Highlight } from './renderer.ts';
@@ -128,6 +128,8 @@ export class GameScreen {
     this.el.panel = h('div.float.panel');
     this.el.info = h('div.float.infocard', { hidden: true, onclick: () => this.setInfo(null) });
     this.el.toasts = h('div.toasts');
+    this.el.banner = h('div.banner', { hidden: true, role: 'status', 'aria-live': 'polite' });
+    this.el.notes = h('div.float.yearnotes', { hidden: true });
     this.el.overlay = h('div', { hidden: true });
     this.el.tools = h(
       'div.float.tools',
@@ -141,7 +143,7 @@ export class GameScreen {
       this.offFullscreen = onFullscreenChange(() => fs.replaceChildren(icon(isFullscreen() ? 'exitFullscreen' : 'fullscreen')));
     }
     this.el.menu = h('div.float.menu-btn', h('button', { title: 'Menu', 'aria-label': 'Menu', onclick: () => this.openMenu() }, icon('menu')));
-    this.el.game = h('div.screen.game', canvas, this.el.brand, this.el.roster, this.el.info, this.el.panel, this.el.tools, this.el.menu, this.el.toasts, this.el.overlay);
+    this.el.game = h('div.screen.game', canvas, this.el.brand, this.el.roster, this.el.info, this.el.panel, this.el.tools, this.el.menu, this.el.notes, this.el.toasts, this.el.banner, this.el.overlay);
     mount(root, this.el.game);
     // Players start compact on small screens, unless this device chose otherwise.
     let saved: string | null = null;
@@ -159,6 +161,7 @@ export class GameScreen {
     this.lastEvent = state.eventCount - 1;
     this.renderer.setState(state);
     this.unsub = session.subscribe((s) => this.onState(s));
+    setMusicActive(true);
     window.addEventListener('resize', this.layout);
     this.render();
   }
@@ -166,6 +169,8 @@ export class GameScreen {
   private offFullscreen: () => void = () => {};
 
   destroy() {
+    setMusicActive(false);
+    if (this.bannerTimer) clearTimeout(this.bannerTimer);
     this.offFullscreen();
     this.unsub();
     this.renderer.destroy();
@@ -222,19 +227,19 @@ export class GameScreen {
     for (const { event: e } of events) {
       switch (e.kind) {
         case 'year':
-          play('bell');
-          cueDelay = 1.1;
-          this.toast(`Year ${e.year} begins`);
+          this.banner({ icon: 'bell', title: `Year ${e.year}`, sub: 'The seasons turn.', sound: 'newYear' });
+          cueDelay = 2.4;
           break;
         case 'phase':
           if (e.skipped) {
-            const why: Partial<Record<Phase, string>> = {
-              production: 'A hard winter: no production this year.',
-              trade: 'Roads are closed: no trading this year.',
-              shipment: 'Storms at sea: no shipments this year.',
+            const why: Partial<Record<Phase, { title: string; sub: string; sound: 'winter' | 'roadsClosed' | 'storm'; icon: IconName }>> = {
+              production: { title: 'A hard winter', sub: 'No production this year.', sound: 'winter', icon: 'timber' },
+              trade: { title: 'The roads are closed', sub: 'No trading this year.', sound: 'roadsClosed', icon: 'trade' },
+              shipment: { title: 'Storms at sea', sub: 'No shipments this year.', sound: 'storm', icon: 'boat' },
             };
-            play('cueSkip', { delay: cueDelay });
-            this.toast(why[e.phase] ?? `${PHASE_NAMES[e.phase]} skipped`);
+            const w = why[e.phase];
+            if (w) this.banner(w);
+            else this.toast(`${PHASE_NAMES[e.phase]} skipped`);
           } else {
             const cue: Partial<Record<Phase, Parameters<typeof play>[0]>> = {
               development: 'cueBuild',
@@ -300,21 +305,20 @@ export class GameScreen {
           play('battle', { strength: (e.attack + e.defense) / 16 });
           const a = this.player(e.attacker).name;
           const d = e.defender < 0 ? 'the locals' : this.player(e.defender).name;
-          const odds = `${e.attack} vs ${e.defense}`;
+          // The totals and odds actually rolled, after any allies joined in.
+          const odds = `${e.attack} vs ${e.defense}` + (e.odds > 0 && e.odds < 1 ? `, ${Math.round(e.odds * 100)}% odds` : '');
           const outcome = !e.won ? 'repel' : local(e.attacker) ? 'triumph' : local(e.defender) ? 'loss' : 'win';
           if (!e.looted) play(outcome, { delay: 0.75 });
           if (e.won) this.toast(`${a} conquered ${this.tname(e.target)} from ${d} (${odds})`, false, e.attacker);
           else this.toast(`${d} held ${this.tname(e.target)} against ${a} (${odds})`, false, e.defender);
           if (e.looted) {
-            play('plunder', { delay: 0.75 });
             const loot = GOODS.filter((g) => e.looted![g] > 0).map((g) => `${e.looted![g]} ${g}`).join(', ');
-            this.toast(`${a} captured ${d}'s stockpile${loot ? ': ' + loot : ''}!`, false, e.attacker);
+            this.banner({ icon: 'stockpile', title: 'Stockpile captured!', sub: `${a} seized ${d}'s treasure${loot ? ': ' + loot : ''}.`, sound: 'plunder', player: e.attacker, delay: 0.75 });
           }
           break;
         }
         case 'eliminated':
-          play('gong', { delay: 1.2 });
-          this.toast(`${this.player(e.player).name} has been driven from the map!`, false, e.player);
+          this.banner({ icon: 'shield', title: `${this.player(e.player).name} is defeated`, sub: 'Driven from the map.', sound: 'gong', player: e.player, delay: 1.2 });
           break;
         case 'pass':
           if (e.reason && e.reason !== 'no shipment') this.toast(e.reason, false, e.player);
@@ -327,6 +331,43 @@ export class GameScreen {
           break;
       }
     }
+  }
+
+  // Big announcements: shown one after another, each for a few seconds with its own tune.
+  private banners: { icon: IconName; title: string; sub: string; sound: Parameters<typeof play>[0]; player?: number; delay?: number }[] = [];
+  private bannerTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private banner(b: GameScreen['banners'][number]) {
+    this.banners.push(b);
+    if (!this.bannerTimer) this.nextBanner();
+  }
+
+  private nextBanner() {
+    const b = this.banners.shift();
+    const el = this.el.banner;
+    if (!b) {
+      this.bannerTimer = null;
+      el.classList.remove('show');
+      setTimeout(() => {
+        if (!this.bannerTimer) el.hidden = true;
+      }, 400);
+      return;
+    }
+    const start = () => {
+      play(b.sound);
+      const color = b.player !== undefined ? this.color(b.player).fill : 'var(--accent)';
+      mount(el, h('div.badge', { style: { background: color } }, icon(b.icon)), h('div', h('div.title', b.title), h('div.sub', b.sub)));
+      el.hidden = false;
+      el.classList.remove('show');
+      void el.offsetWidth;
+      el.classList.add('show');
+      this.bannerTimer = setTimeout(() => {
+        el.classList.remove('show');
+        this.bannerTimer = setTimeout(() => this.nextBanner(), 350);
+      }, 2800);
+    };
+    if (b.delay) this.bannerTimer = setTimeout(start, b.delay * 1000);
+    else start();
   }
 
   toast(text: string, error = false, player = -1) {
@@ -444,6 +485,11 @@ export class GameScreen {
       this.applyLayout(this.layoutMode);
     }
     this.renderer.setInsets(this.layoutInsets);
+    // Year notes go under the title card (and under the players if they sit below it).
+    const b = this.el.brand.getBoundingClientRect();
+    const r = this.el.roster.getBoundingClientRect();
+    const under = r.left < b.right && r.top >= b.top ? Math.max(b.bottom, r.bottom) : b.bottom;
+    this.el.game.style.setProperty('--notes-top', under + 8 + 'px');
   };
 
   private layoutInsets = { top: 8, right: 8, bottom: 8, left: 8 };
@@ -470,11 +516,11 @@ export class GameScreen {
       const barWidth = w - 24 - safeLeft - (sideW + 24 + safeRight);
       // Narrow chips drop the resource counts, then the names (tap for more).
       const perChip = barWidth / this.state.players.length;
-      if (!this.rosterCompact && perChip < 235) game.classList.add('slim');
+      if (!this.rosterCompact && perChip < 340) game.classList.add('slim');
       if (!this.rosterCompact && perChip < 125) game.classList.add('slim', 'tiny');
       const top = brand.getBoundingClientRect().bottom + 8;
       game.style.setProperty('--panel-top', top + 'px');
-      game.style.setProperty('--panel-max', `${hgt - top - 72}px`);
+      game.style.setProperty('--panel-max', `${hgt - top - 72 - this.notesHeight()}px`);
       this.panelRoom = hgt - top - 72;
       const barTop = roster.getBoundingClientRect().top;
       const insets = { top: 8, right: sideW + 24 + safeRight, bottom: hgt - barTop + 8, left: 8 };
@@ -488,7 +534,7 @@ export class GameScreen {
       game.style.setProperty('--roster-top', brand.getBoundingClientRect().bottom + 8 + 'px');
       const top = roster.getBoundingClientRect().bottom + 8;
       game.style.setProperty('--panel-top', top + 'px');
-      game.style.setProperty('--panel-max', `${hgt - top - 72}px`);
+      game.style.setProperty('--panel-max', `${hgt - top - 72 - this.notesHeight()}px`);
       this.panelRoom = hgt - top - 72;
       const insets = { top: 8, right: sideW + 24 + safeRight, bottom: 8, left: 8 };
       toasts.style.left = `${(w - insets.right) / 2}px`;
@@ -543,6 +589,7 @@ export class GameScreen {
     // Music turns martial during conquest.
     setMood(s.phase === 'conquest' ? 'war' : 'peace');
     this.renderBrand();
+    this.renderNotes();
     this.renderRoster(act?.seat ?? -1);
     this.renderInfo();
     if (s.phase === 'over') {
@@ -566,6 +613,28 @@ export class GameScreen {
     this.addPanelToggle();
     this.renderer.setHighlight(hl);
     this.layout();
+  }
+
+  /** Persistent notes on what this year skipped (the banners fade, these stay). */
+  private renderNotes() {
+    const s = this.state;
+    const skipped = s.log.filter((e) => e.year === s.year && e.event.kind === 'phase' && e.event.skipped).map((e) => (e.event as { phase: Phase }).phase);
+    const lines: Partial<Record<Phase, [IconName, string]>> = {
+      production: ['timber', 'Hard winter: no production'],
+      trade: ['trade', 'Roads closed: no trading'],
+      shipment: ['boat', 'Storms at sea: no shipments'],
+    };
+    const shown = skipped.filter((p) => lines[p]);
+    this.el.notes.hidden = !shown.length || s.phase === 'over';
+    mount(
+      this.el.notes,
+      h('div.eyebrow', `Year ${s.year}`),
+      shown.map((p) => h('div.note', icon(lines[p]![0]), lines[p]![1])),
+    );
+  }
+
+  private notesHeight() {
+    return this.el.notes.hidden ? 0 : this.el.notes.getBoundingClientRect().height + 8;
   }
 
   private renderBrand() {
@@ -1308,30 +1377,52 @@ export class GameScreen {
 
     const targets = this.attackTargets(seat);
     const target = ui.target !== null && targets.has(ui.target) ? ui.target : null;
+    const spent = left <= 0;
     const footer = h(
       'div.actions',
-      h('button', { onclick: () => this.act({ type: 'done', player: seat }) }, 'End turn'),
-      !s.conquest.usedStockpileMove && territoriesOf(s, seat).length > 1
+      // With no attacks left the turn waits: ending it is the main action.
+      h('button', { class: spent ? 'primary' : '', onclick: () => this.act({ type: 'done', player: seat }) }, 'End turn'),
+      !spent && !s.conquest.usedStockpileMove && territoriesOf(s, seat).length > 1
         ? h('button', { onclick: () => ((ui.stockpileMode = true), (ui.target = null), this.render()) }, icon('stockpile'), 'Move stockpile')
         : null,
       h('span.spacer'),
-      target !== null ? h('button.primary', { id: 'attack-btn' }, icon('swords'), 'Attack!') : null,
+      target !== null && !spent ? h('button.primary', { id: 'attack-btn' }, icon('swords'), 'Attack!') : null,
     );
-    const title = `${p.name}: ${left === 1 ? 'one attack left' : `${left} attacks`}`;
+    const title = `${p.name}: ${spent ? 'no attacks left' : left === 1 ? 'one attack left' : `${left} attacks`}`;
     if (target === null) {
-      mount(panel, this.who(seat, title, 'Tap an enemy or unclaimed territory next to yours to plan an attack.'), footer);
+      mount(
+        panel,
+        this.who(seat, title, spent ? 'Tap any land to see its odds, then end your turn when you are ready.' : 'Tap an enemy or unclaimed territory next to yours to plan an attack.'),
+        footer,
+      );
       return { selectable: targets };
     }
     const options = this.forceOptions(seat, target);
     if (ui.force >= options.length) ui.force = 0;
     const opt = options[ui.force];
     const pv = previewAttack(s, seat, target, opt?.force ?? null);
-    const btn = footer.querySelector('#attack-btn') as HTMLButtonElement;
-    btn.disabled = !pv.possible;
-    btn.onclick = () => this.launch(seat, target, opt?.force ?? null);
-    const allyNote = pv.allies.length
-      ? h('p', 'Also nearby: ', pv.allies.map((a, i) => [i ? ', ' : '', h('b', this.player(a.player).name), ` (${a.strength})`]), ' may take sides.')
-      : null;
+    const btn = footer.querySelector('#attack-btn') as HTMLButtonElement | null;
+    if (btn) {
+      btn.disabled = !pv.possible;
+      btn.onclick = () => this.launch(seat, target, opt?.force ?? null);
+    }
+    // Neighbors may still join either side: show what that would do to the odds.
+    let allyNote: HTMLElement | null = null;
+    if (pv.allies.length) {
+      const names = pv.allies.map((a) => this.player(a.player).name).join(pv.allies.length > 2 ? ', ' : ' and ');
+      const sum = pv.allies.reduce((n, a) => n + a.strength, 0);
+      const pct = (a: number, d: number) => `${Math.round(this.odds(a, d) * 100)}%`;
+      const defName = s.territories[target].owner < 0 ? 'the locals' : this.player(s.territories[target].owner).name;
+      allyNote = h(
+        'p',
+        h('b', { style: { color: 'var(--text)' } }, names),
+        ` ${pv.allies.length > 1 ? 'border' : 'borders'} it too (+${sum}) and will choose a side: `,
+        h('b', { style: { color: 'var(--ok)' } }, `${pct(pv.attack + sum, pv.defense)} if ${pv.allies.length > 1 ? 'they help' : 'it helps'} you`),
+        ', ',
+        h('b', { style: { color: 'var(--danger)' } }, `${pct(pv.attack, pv.defense + sum)} if ${pv.allies.length > 1 ? 'they help' : 'it helps'} ${defName}`),
+        '.',
+      );
+    }
     mount(
       panel,
       this.who(seat, `${title} · ${this.tname(target)}`, null),

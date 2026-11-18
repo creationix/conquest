@@ -54,6 +54,13 @@ export function cycle(kind: Kind): Level {
   return next;
 }
 
+/** Music plays only during a game; the menus stay quiet. */
+let musicActive = false;
+export function setMusicActive(on: boolean) {
+  musicActive = on;
+  sync();
+}
+
 export function setMood(m: Mood) {
   mood = m;
   music?.setMood(m);
@@ -65,7 +72,7 @@ function sync() {
     const g = GAINS[kind][levels[kind]];
     buses[kind]?.gain.setTargetAtTime(g, ctx.currentTime, 0.03);
   }
-  music?.setEnabled(levels.music !== 'off' && !document.hidden);
+  music?.setEnabled(levels.music !== 'off' && musicActive && !document.hidden);
 }
 
 function init() {
@@ -133,6 +140,7 @@ export type Sfx =
   | 'click' | 'tap' | 'select' | 'error'
   | 'flag' | 'chest' | 'turn' | 'bell'
   | 'cueBuild' | 'cueHarvest' | 'cueMarket' | 'cueSail' | 'cueWar' | 'cueSkip'
+  | 'newYear' | 'winter' | 'roadsClosed' | 'storm'
   | 'gold' | 'iron' | 'coal' | 'timber' | 'hooves'
   | 'city' | 'weapon' | 'boat' | 'splash'
   | 'offer' | 'trade' | 'decline'
@@ -269,6 +277,30 @@ export function play(sfx: Sfx, options: SfxOptions = {}) {
       // A muted, falling shrug: this phase is skipped.
       tone(330, 0, 0.18, 'triangle', 0.05);
       return tone(247, 0.14, 0.3, 'triangle', 0.05);
+    // --- Announcement jingles (a few seconds each) ---
+    case 'newYear':
+      // The bell, then a rising, hopeful horn call.
+      metal(0, 330, 0.08, 2);
+      [392, 523, 659, 784].forEach((f, i) => horn(0.5 + i * 0.22, f, i === 3 ? 0.9 : 0.24, 0.07));
+      return;
+    case 'winter':
+      // Cold wind and slow, falling bells.
+      hiss(0, 2.6, 0.06, 'bandpass', 500, 1600, 0.8);
+      [659, 523, 440, 330].forEach((f, i) => metal(0.2 + i * 0.42, f, 0.06, 1.4));
+      return;
+    case 'roadsClosed':
+      // A gate slams, then a falling horn phrase.
+      knock(0, 110, 0.32);
+      knock(0.12, 90, 0.26);
+      [294, 262, 220].forEach((f, i) => horn(0.4 + i * 0.32, f, i === 2 ? 0.8 : 0.3, 0.07));
+      return;
+    case 'storm':
+      // Thunder rolling in over wind, and a low, uneasy horn.
+      hiss(0, 2.4, 0.3, 'lowpass', 180, 60, 0.7);
+      hiss(0.05, 0.25, 0.25, 'lowpass', 1200, 200);
+      hiss(0, 2.6, 0.05, 'bandpass', 700, 1800, 0.8);
+      horn(0.6, 147, 0.7, 0.06);
+      return horn(1.25, 139, 1, 0.06);
     // --- Production ---
     case 'gold':
       tone(1976, 0, 0.12, 'square', 0.03);

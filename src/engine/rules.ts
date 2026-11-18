@@ -672,7 +672,6 @@ function resolveAttack(s: GameState, p: number) {
     // fighting, nothing is lost, but the attack is used up.
     emit(s, { kind: 'pass', player: p, reason: 'The allies tipped the balance, so the attack was called off.', target });
     s.conquest.attacksLeft--;
-    if (s.conquest.attacksLeft <= 0) advanceTurn(s);
     return;
   }
   const won = odds >= 1 ? true : random(s, (r) => r.next() < odds);
@@ -726,7 +725,8 @@ function resolveAttack(s: GameState, p: number) {
   if (won) checkElimination(s, defender);
   if (s.phase === 'over') return;
   s.conquest.attacksLeft = won ? s.conquest.attacksLeft - 1 : 0;
-  if (s.conquest.attacksLeft <= 0) advanceTurn(s);
+  // The lord's turn continues until they end it, even with no attacks left,
+  // so they can look over the map and the odds first.
 }
 
 // ---------------------------------------------------------------------------
@@ -884,6 +884,7 @@ export function apply(state: GameState, action: Action): GameState {
     }
     case 'plan': {
       if (s.phase !== 'conquest' || currentPlayer(s) !== p) fail('Not your attack');
+      if (s.conquest.attacksLeft <= 0) fail('No attacks left this turn');
       if (s.conquest.plan?.allies.some((a) => a.side !== null)) fail('Allies have already chosen sides');
       planAttack(s, p, action.target, action.force);
       break;
@@ -912,12 +913,12 @@ export function apply(state: GameState, action: Action): GameState {
       if (s.phase !== 'conquest' || currentPlayer(s) !== p) fail('Not your turn');
       if (s.conquest.plan) fail('Cancel your attack first');
       if (s.conquest.usedStockpileMove) fail('You already moved your stockpile');
+      if (s.conquest.attacksLeft <= 0) fail('No attacks left this turn');
       validateMove(s, p, { kind: 'stockpile', to: action.to });
       player.stockpile = action.to;
       s.conquest.usedStockpileMove = true;
       emit(s, { kind: 'ship', player: p, move: { kind: 'stockpile', to: action.to } });
       s.conquest.attacksLeft--;
-      if (s.conquest.attacksLeft <= 0) advanceTurn(s);
       break;
     }
     default:

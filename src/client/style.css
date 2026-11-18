@@ -332,3 +332,26 @@ dialog::backdrop { background: #04131dbb; }
 .game.bar .roster:not(.compact) .roster-toggle, .game.topbar .roster .roster-toggle { margin: 0; flex: 0 0 auto; }
 .game.short .roster.compact { display: flex; flex-wrap: wrap; gap: 4px; }
 .game.short .roster.compact .prow { flex: 0 0 auto; }
+/* Big announcements (new year, hard winter, captured stockpile...). */
+.banner { position: absolute; z-index: 12; left: 50%; top: 42%; transform: translate(-50%, -50%) scale(0.9); pointer-events: none;
+  display: flex; align-items: center; gap: 24px; padding: 28px 40px; width: max-content; max-width: min(640px, calc(100vw - 24px));
+  background: #0d2733f7; border: 2px solid #f5bd6955; border-radius: 30px;
+  box-shadow: 0 0 0 100vmax #04131d66, 0 30px 90px #000c; opacity: 0; transition: opacity .3s, transform .35s cubic-bezier(.2, 1.4, .4, 1); }
+.banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.banner .badge { width: 84px; height: 84px; border-radius: 24px; flex-shrink: 0; display: grid; place-items: center; box-shadow: inset 0 -5px 0 #0003, inset 0 2px 0 #fff5, 0 8px 24px #0006; }
+.banner .badge .ico { width: 48px; height: 48px; fill: #0009; }
+.banner .badge .ico.stroke { fill: none; stroke: #0009; }
+.banner .title { font-size: 42px; font-weight: 850; color: var(--accent); letter-spacing: .5px; line-height: 1.05; text-shadow: 0 3px 0 #7a4f12; }
+.banner .sub { font-size: 18px; color: var(--text); margin-top: 6px; }
+@media (max-width: 600px) { .banner { padding: 18px 20px; gap: 14px; } .banner .badge { width: 56px; height: 56px; } .banner .badge .ico { width: 32px; height: 32px; } .banner .title { font-size: 28px; } .banner .sub { font-size: 15px; } }
+/* "This year" notes: which phases were skipped. Bottom of the right column,
+   or under the title card in layouts without one. */
+.yearnotes { padding: 8px 12px; top: var(--notes-top, 100px); left: calc(12px + var(--safe-left)); max-width: 260px; }
+.yearnotes .eyebrow { font-size: 10px; margin-bottom: 4px; }
+.yearnotes .note { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); line-height: 1.5; }
+.yearnotes .note .ico { width: 16px; height: 16px; color: var(--muted); fill: var(--muted); }
+.yearnotes .note .ico.stroke { fill: none; stroke: var(--muted); }
+.game.column .yearnotes { top: auto; left: auto; right: calc(12px + var(--safe-right)); bottom: calc(70px + var(--safe-bottom)); width: var(--side-w); max-width: none; }
+.game.phone .yearnotes { padding: 5px 10px; }
+.game.phone .yearnotes .eyebrow { display: none; }
+.game.phone .yearnotes .note { font-size: 12px; }

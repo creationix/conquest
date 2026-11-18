@@ -381,3 +381,33 @@ test('a computer attacker backs off when allies turn against it, and does not as
   const again = chooseAction(next, 0)!;
   assert.ok(!(again.type === 'plan' && again.target === 1), `asked again: ${JSON.stringify(again)}`);
 });
+
+test('a turn does not end by itself after the last attack', () => {
+  const map = textMap(['AABBCCDD']);
+  const s = custom(map, [0, 1, 1, 1], 2, { chance: 'low' });
+  s.territories[0].weapon = true;
+  s.conquest.attacksLeft = 1;
+  let next = apply(apply(s, { type: 'plan', player: 0, target: 1, force: null }), { type: 'attack', player: 0 });
+  assert.equal(next.conquest.attacksLeft, 0);
+  assert.equal(currentPlayer(next), 0, 'still the attacker’s turn');
+  assert.equal(tryApply(next, { type: 'plan', player: 0, target: 2, force: null }).error, 'No attacks left this turn');
+  next = apply(next, { type: 'done', player: 0 });
+  assert.equal(currentPlayer(next), 1);
+});
+
+test('computer neighbors do not gang up on a lord who is only slightly ahead', () => {
+  // A (person) attacks B (computer); C (computer) borders B. A has one more land than the others.
+  const map = textMap(['AABBCC', 'DD....']);
+  const s = custom(map, [0, 1, 2, 0], 3, { chance: 'high' });
+  s.players[1].ai = true;
+  s.players[2].ai = true;
+  s.territories[0].horse = true;
+  let next = apply(s, { type: 'plan', player: 0, target: 1, force: null });
+  assert.deepEqual(next.conquest.plan!.allies.map((a) => a.player), [2]);
+  assert.deepEqual(chooseAction(next, 2), { type: 'ally', player: 2, side: 'neutral' });
+  // Far ahead (two cities more than anyone): now the neighbors push back.
+  s.territories[0].city = true;
+  s.territories[3].city = true;
+  next = apply(s, { type: 'plan', player: 0, target: 1, force: null });
+  assert.deepEqual(chooseAction(next, 2), { type: 'ally', player: 2, side: 'defender' });
+});

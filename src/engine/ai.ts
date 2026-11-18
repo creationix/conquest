@@ -92,6 +92,7 @@ export function chooseAction(s: GameState, p: number): Action | null {
         const threshold = s.settings.chance === 'high' ? 0.55 : 0.5;
         return winOdds(s, att, def) >= threshold ? { type: 'attack', player: p } : { type: 'cancel', player: p };
       }
+      if (s.conquest.attacksLeft <= 0) return { type: 'done', player: p };
       return tryIt(conquer(s, p)) ?? { type: 'done', player: p };
     }
   }
@@ -283,18 +284,33 @@ function conquer(s: GameState, p: number): Action | null {
   return null;
 }
 
+/** How far a lord is ahead of everyone else (cities count most). */
+function standing(s: GameState, q: number): number {
+  return cityCount(s, q) * 10 + territoriesOf(s, q).length;
+}
+
+/** Is this lord clearly ahead of every other lord (not just by a land or two)? */
+function runaway(s: GameState, q: number): boolean {
+  if (q < 0) return false;
+  const mine = standing(s, q);
+  const best = Math.max(...s.players.filter((x) => x.alive && x.id !== q).map((x) => standing(s, x.id)));
+  return cityCount(s, q) > 0 && mine >= best + 10 ? true : mine >= best * 1.3 + 3;
+}
+
 function allySide(s: GameState, p: number, target: number, defender: number): Side {
   const attacker = currentPlayer(s);
-  const lead = leader(s);
-  // Never help the leader; otherwise side against whoever threatens us most.
-  if (attacker === lead && defender >= 0) return 'defender';
-  if (defender === lead) return 'attacker';
+  // Gang up only on a lord who is clearly running away with the game.
+  if (runaway(s, attacker) && defender >= 0) return 'defender';
+  if (runaway(s, defender)) return 'attacker';
   if (defender < 0) return 'neutral';
+  // Otherwise mostly stay out; join in only against a neighbor that
+  // threatens us far more than the other side does.
   const fromAttacker = territoriesOf(s, p).reduce((n, t) => n + bearing(s, attacker, t), 0);
   const fromDefender = territoriesOf(s, p).reduce((n, t) => n + bearing(s, defender, t), 0);
-  if (Math.abs(fromAttacker - fromDefender) < 2) return 'neutral';
   void target;
-  return fromAttacker > fromDefender ? 'defender' : 'attacker';
+  if (fromAttacker >= fromDefender + 5) return 'defender';
+  if (fromDefender >= fromAttacker + 5) return 'attacker';
+  return 'neutral';
 }
 
 function stockValue(st: Stock, need: Stock): number {
