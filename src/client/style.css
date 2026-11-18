@@ -385,3 +385,6 @@ dialog::backdrop { background: #04131dbb; }
 .overlay .recap .eyebrow { font-size: 10px; margin-bottom: 2px; }
 .overlay .recap-line { font-size: 13.5px; color: var(--text); display: flex; align-items: baseline; gap: 6px; line-height: 1.35; }
 .overlay .recap-line .dot { flex-shrink: 0; transform: translateY(1px); }
+.offer.ask { flex-direction: column; align-items: stretch; gap: 6px; }
+.offer.ask .row { gap: 6px; }
+.offer.ask .row button { flex: 1 1 auto; }

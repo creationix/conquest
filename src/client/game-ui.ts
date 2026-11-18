@@ -418,8 +418,11 @@ export class GameScreen {
     const now = currentPlayer(s);
     if (local(now) && needsStockpile(s, now)) return { seat: now, role: 'place' };
     if (s.phase === 'conquest' && s.conquest.plan) {
+      // When the attacker is at this device, neighbors here answer right in
+      // the attacker's prompt (no passing the device mid-attack).
+      const attackerHere = local(currentPlayer(s));
       const ally = s.conquest.plan.allies.find((a) => a.side === null && local(a.player));
-      if (ally) return { seat: ally.player, role: 'ally' };
+      if (ally && !attackerHere) return { seat: ally.player, role: 'ally' };
     }
     if (s.phase === 'trade') {
       const mine = this.localSeats();
@@ -622,7 +625,7 @@ export class GameScreen {
     // Hand the device over when a different person needs to act.
     const multi = this.localSeats().length > 1;
     const handKey = act ? `${act.seat}:${act.role}:${s.phase}:${s.year}` : '';
-    if (act && multi && act.role !== 'trade' && act.seat !== this.lastSeat && this.handoffDone !== handKey) {
+    if (act && multi && act.role !== 'trade' && act.role !== 'ally' && act.seat !== this.lastSeat && this.handoffDone !== handKey) {
       // Let a battle (animation, messages, announcements) play out before
       // the device is handed over and the screen is covered.
       const wait = Math.max(this.lastBattleAt + 2600 - performance.now(), this.bannerTimer ? 400 : 0);
@@ -636,7 +639,7 @@ export class GameScreen {
       return;
     }
     this.el.overlay.hidden = true;
-    if (act) this.lastSeat = act.seat;
+    if (act && act.role !== 'ally') this.lastSeat = act.seat;
     const hl = this.renderPanel(act);
     this.addPanelToggle();
     this.renderer.setHighlight(hl);
@@ -1508,12 +1511,36 @@ export class GameScreen {
         if (a.side === 'attacker') att += a.strength;
         if (a.side === 'defender') def += a.strength;
         const what = a.side === null ? 'deciding…' : a.side === 'neutral' ? 'stays out' : a.side === 'attacker' ? `joins you (+${a.strength})` : `defends (+${a.strength})`;
-        return h('div.offer', h('span.dot', { style: { background: this.color(a.player).fill } }), h('b', this.player(a.player).name), ' ', what);
+        const dot = h('span.dot', { style: { background: this.color(a.player).fill } });
+        // A neighbor at this table answers here: ask them out loud, tap their answer.
+        if (a.side === null && this.session.controls(a.player) && !this.player(a.player).ai) {
+          const defName = plan.defender < 0 ? 'locals' : this.player(plan.defender).name;
+          const choose = (side: 'attacker' | 'defender' | 'neutral') => this.act({ type: 'ally', player: a.player, side });
+          return h(
+            'div.offer.ask',
+            h('div', dot, h('b', this.player(a.player).name), ` (+${a.strength}), which side?`),
+            h(
+              'div.row',
+              h('button.small', { onclick: () => choose('attacker') }, `Help ${p.name}`),
+              h('button.small', { onclick: () => choose('defender') }, `Help ${defName}`),
+              h('button.small.quiet', { onclick: () => choose('neutral') }, 'Stay out'),
+            ),
+          );
+        }
+        return h('div.offer', dot, h('b', this.player(a.player).name), ' ', what);
       });
       const pending = plan.allies.some((a) => a.side === null);
       mount(
         panel,
-        this.who(seat, `${p.name} attacks ${this.tname(plan.target)}`, pending ? 'Neighbors with forces nearby are choosing sides…' : 'Everyone has chosen.'),
+        this.who(
+          seat,
+          `${p.name} attacks ${this.tname(plan.target)}`,
+          pending
+            ? plan.allies.some((a) => a.side === null && this.session.controls(a.player) && !this.player(a.player).ai)
+              ? 'Ask your neighbors which side they take, then tap their answers.'
+              : 'Neighbors with forces nearby are choosing sides…'
+            : 'Everyone has chosen.',
+        ),
         this.vsView(att, def, plan.defender),
         lines,
         h(
