@@ -63,7 +63,14 @@ function setupLocal() {
 function playLocal(state: ReturnType<typeof createGame>) {
   swap(() => {
     const session = new LocalSession(state);
-    const screen = new GameScreen(root, session, home);
+    // Play again: same lords and rules, fresh map.
+    const rematch = () => {
+      const settings = { ...state.settings, seed: Math.random().toString(36).slice(2, 8).toUpperCase() };
+      const players = state.players.map((p) => ({ name: p.name, color: p.color, ai: p.ai }));
+      clearSave();
+      playLocal(createGame(settings, players));
+    };
+    const screen = new GameScreen(root, session, home, rematch);
     // Hook for automated browser tests.
     (window as unknown as { __conquest: unknown }).__conquest = { session, screen, chooseAction, actors, info };
     return () => {

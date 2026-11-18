@@ -130,10 +130,14 @@ export class GameScreen {
   private onExit: () => void;
   private rosterCompact = false;
 
-  constructor(root: HTMLElement, session: Session, onExit: () => void) {
+  /** Start a new game with the same lords and settings (single-device games). */
+  private onRematch: (() => void) | null;
+
+  constructor(root: HTMLElement, session: Session, onExit: () => void, onRematch: (() => void) | null = null) {
     this.root = root;
     this.session = session;
     this.onExit = onExit;
+    this.onRematch = onRematch;
     const canvas = h('canvas.map') as HTMLCanvasElement;
     this.el.brand = h('div.float.brand');
     this.el.roster = h('div.float.roster', { onclick: () => this.toggleRoster() });
@@ -2006,7 +2010,8 @@ export class GameScreen {
         h(
           'div.stack',
           h('button', { onclick: () => (this.el.overlay.hidden = true) }, 'Look at the map'),
-          h('button.primary', { onclick: () => this.onExit() }, 'Back to the menu'),
+          this.onRematch ? h('button.primary', { onclick: () => this.onRematch!() }, 'Play again (new map)') : null,
+          h(this.onRematch ? 'button' : 'button.primary', { onclick: () => this.onExit() }, 'Back to the menu'),
         ),
       ),
     );
@@ -2073,7 +2078,13 @@ export class GameScreen {
                 ),
               )
             : null,
-          h('button', { onclick: () => (close(), this.onExit()) }, this.session.kind === 'local' ? 'Save and leave' : 'Leave (the game keeps going)'),
+          s.phase === 'over' && this.onRematch ? h('button', { onclick: () => (close(), this.onRematch!()) }, 'Play again (new map)') : null,
+          h(
+            'button',
+            { onclick: () => (close(), this.onExit()) },
+            // A finished game has nothing left to save.
+            s.phase === 'over' ? 'Back to the menu' : this.session.kind === 'local' ? 'Save and leave' : 'Leave (the game keeps going)',
+          ),
         ),
       ),
     );
