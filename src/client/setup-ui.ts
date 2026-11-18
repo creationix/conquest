@@ -77,7 +77,7 @@ export function showHome(root: HTMLElement, actions: HomeActions): () => void {
   const install = installRow();
   const card = h(
     'div.menu-card',
-    h('div.eyebrow', 'A remake of the 1986 classic'),
+    h('div.eyebrow', 'A game of land, wealth and war'),
     h('div.title', 'CONQUEST'),
     h('p.subtitle', 'Claim land. Grow rich. Build cities. Betray your family.'),
     h(

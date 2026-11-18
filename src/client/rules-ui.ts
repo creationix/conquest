@@ -5,7 +5,7 @@ export function showRules() {
   const close = () => closeDialog(dlg);
   dlg.innerHTML = `
     <div class="row"><h2 style="margin:0">How to play</h2><span class="spacer"></span></div>
-    <p>Lords of Conquest is a game of land, wealth and war for 2 to 7 lords. Be the first to own enough
+    <p>Conquest is a game of land, wealth and war for 2 to 7 lords. Be the first to own enough
     <b>cities</b> (3 by default) at the end of a year. Cities you capture count too.</p>
 
     <h3>Choosing lands</h3>

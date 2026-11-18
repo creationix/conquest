@@ -542,6 +542,7 @@ export class MapRenderer {
     }
     for (const a of h.arrows ?? []) this.drawArrow(ctx, a.from, a.to, a.color, 1, pulse);
     for (const g of h.ghosts ?? []) this.drawGhostBoat(ctx, g, pulse);
+    if (this.drawVictory(ctx, performance.now())) this.requestDraw();
   }
 
   private drawGhostBoat(ctx: CanvasRenderingContext2D, g: NonNullable<Highlight['ghosts']>[number], pulse: number) {
@@ -572,6 +573,54 @@ export class MapRenderer {
     ctx.fillStyle = g.dark;
     ctx.fill(iconPath('boat'));
     ctx.restore();
+  }
+
+  private victorySweep: { color: string; delays: number[]; start: number } | null = null;
+
+  /** Every land turns the winner's color, spreading outward from their realm. */
+  celebrate(winner: number) {
+    if (!this.state || !this.info || winner < 0) return;
+    const s = this.state;
+    const color = ownerColors(winner, s).fill;
+    const delays = new Array<number>(s.territories.length).fill(-1);
+    let frontier = s.territories.map((t, i) => (t.owner === winner ? i : -1)).filter((i) => i >= 0);
+    frontier.forEach((i) => (delays[i] = 0));
+    let step = 0;
+    while (frontier.length) {
+      step++;
+      const next: number[] = [];
+      for (const f of frontier) {
+        for (const n of this.info.territories[f].neighbors) {
+          if (delays[n] >= 0) continue;
+          delays[n] = step * 320;
+          next.push(n);
+        }
+      }
+      frontier = next;
+    }
+    // Islands unreachable over land join last.
+    delays.forEach((d, i) => d < 0 && (delays[i] = (step + 1) * 320));
+    this.victorySweep = { color, delays, start: performance.now() };
+    this.requestDraw();
+  }
+
+  private drawVictory(ctx: CanvasRenderingContext2D, now: number): boolean {
+    const v = this.victorySweep;
+    if (!v) return false;
+    let moving = false;
+    v.delays.forEach((d, i) => {
+      const p = (now - v.start - d) / 450;
+      if (p <= 0) {
+        moving = true;
+        return;
+      }
+      if (p < 1) moving = true;
+      ctx.globalAlpha = Math.min(1, p) * 0.88;
+      ctx.fillStyle = v.color;
+      ctx.fill(this.shapes[i].path);
+    });
+    ctx.globalAlpha = 1;
+    return moving;
   }
 
   private center(t: number): { x: number; y: number } {
@@ -859,7 +908,7 @@ export class MapRenderer {
     // Icons: stockpile, city, weapon, horse, then the resource site.
     const items: { kind: IconName; token: boolean }[] = [];
     if (t.owner >= 0 && s.players[t.owner].stockpile === id) items.push({ kind: 'stockpile', token: true });
-    if (t.city) items.push({ kind: 'city', token: true });
+    // Cities show as hatching only (no token).
     if (t.weapon) items.push({ kind: 'weapon', token: true });
     if (t.horse) items.push({ kind: 'horse', token: true });
     if (t.site) items.push({ kind: t.site as IconName, token: false });
@@ -918,11 +967,7 @@ export class MapRenderer {
     ctx.fillStyle = shade(colors.dark, -0.25);
     ctx.globalAlpha = 0.78;
     ctx.fill(path);
-    if (site === 'horses') {
-      ctx.lineWidth = 1.6;
-      ctx.strokeStyle = shade(colors.dark, -0.25);
-      ctx.stroke(path);
-    }
+
     ctx.restore();
   }
 

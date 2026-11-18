@@ -1,4 +1,5 @@
-// Lords of Conquest rules, following the 1986 Electronic Arts manual.
+// Conquest rules. The mechanics follow the 1986 game Lords of Conquest
+// (Electronic Arts), as described in its manual.
 //
 // The game state is plain JSON. `apply` validates an action, mutates a copy
 // and returns it, so the same code runs in the browser (pass and play) and on

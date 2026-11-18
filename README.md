@@ -1,6 +1,6 @@
 # Conquest
 
-A family-friendly remake of **Lords of Conquest** (Electronic Arts, 1986), the
+A family-friendly strategy game inspired by **Lords of Conquest** (Electronic Arts, 1986), the
 strategy classic of land, wealth and war. Claim territories, mine gold, iron,
 coal and timber, breed horses, build weapons, boats and cities, make (and
 break) deals with your family, and be the first lord with three cities.

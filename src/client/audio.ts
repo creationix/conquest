@@ -393,9 +393,46 @@ export function play(sfx: Sfx, options: SfxOptions = {}) {
       return tone(2400, at, 0.5, 'sine', 0.035, 0.7);
     }
     case 'victory': {
-      const notes = [523, 523, 523, 659, 784, 659, 784, 1047];
-      const at = [0, 0.12, 0.24, 0.36, 0.6, 0.84, 0.96, 1.2];
-      notes.forEach((f, i) => horn(at[i], f, i === notes.length - 1 ? 1 : 0.22, 0.1));
+      // An original, march-like congratulations song (about 17 seconds):
+      // horn melody, harmony that follows it, bass, drums and a final roll.
+      const beat = 60 / 140;
+      const tune: [number, number][] = [
+        [67, 0.5], [67, 0.5], [67, 0.5], [72, 1.5], [76, 1], [74, 0.5], [72, 0.5], [74, 2],
+        [67, 0.5], [67, 0.5], [67, 0.5], [74, 1.5], [77, 1], [76, 0.5], [74, 0.5], [76, 2],
+        [79, 1], [76, 0.5], [72, 0.5], [74, 1], [71, 1], [72, 0.5], [74, 0.5], [76, 1], [72, 2],
+        [77, 1], [76, 0.5], [74, 0.5], [72, 1], [69, 1], [71, 0.5], [72, 0.5], [74, 1.5], [67, 0.5],
+        [79, 1.5], [77, 0.5], [76, 1], [74, 1], [72, 1], [76, 1], [79, 2],
+        [84, 4],
+      ];
+      const midi = (n: number) => 440 * Math.pow(2, (n - 69) / 12);
+      // Harmony: a chord for each two-beat slot, chosen to fit the melody.
+      const chordFor = (n: number) => ([0, 4, 7].includes(n % 12) ? [48, 52, 55] : [5, 9].includes(n % 12) ? [53, 57, 60] : [43, 47, 50]);
+      let t = 0;
+      let slot = -1;
+      for (const [n, len] of tune) {
+        const last = n === 84;
+        horn(t * beat, midi(n), len * beat * 0.92, last ? 0.12 : 0.1);
+        if (n >= 76) horn(t * beat, midi(n - 4), len * beat * 0.9, 0.04); // a third below on the high notes
+        const s2 = Math.floor(t / 2);
+        if (s2 !== slot) {
+          slot = s2;
+          const chord = chordFor(n);
+          tone(midi(chord[0] - 12), t * beat, beat * 1.6, 'triangle', 0.12);
+          if (!last) {
+            tone(midi(chord[1]), t * beat, beat * 1.8, 'triangle', 0.035);
+            tone(midi(chord[2]), t * beat, beat * 1.8, 'triangle', 0.035);
+          }
+          drum(t * beat, 0.22, 100);
+          if (slot % 2 === 1) hiss(t * beat + beat, 0.12, 0.05, 'highpass', 5000);
+        }
+        if (last) {
+          // A drum roll and a ringing final chord.
+          for (let i = 0; i < 12; i++) drum(t * beat + i * 0.06, 0.06 + i * 0.012, 120);
+          [48, 52, 55, 60, 64].forEach((c) => horn(t * beat + 0.75, midi(c), 2.4, 0.05));
+          metal(t * beat + 0.75, 523, 0.06, 2.5);
+        }
+        t += len;
+      }
       return;
     }
   }

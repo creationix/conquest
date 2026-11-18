@@ -107,6 +107,10 @@ interface ForceOption {
   label: string;
   /** Where the force comes from. */
   place?: string;
+  /** Options with the same group are one row; they differ only in cargo. */
+  group: string;
+  /** Cargo carried in this variant (toggle labels, e.g. '+ weapon'). */
+  cargo: string[];
   bonus: number;
   /** A caveat, e.g. that a unit is lost because only one fits. */
   note?: string;
@@ -335,7 +339,11 @@ export class GameScreen {
           }
           break;
         case 'win':
+          // Background music steps aside for the victory song.
+          setMusicActive(false);
           play('victory', { delay: 0.4 });
+          this.renderer.celebrate(e.player);
+          this.gameOverAt = performance.now() + 5500;
           break;
       }
     }
@@ -652,7 +660,7 @@ export class GameScreen {
     const skipped = new Set(s.log.filter((e) => e.year === s.year && e.event.kind === 'phase' && e.event.skipped).map((e) => (e.event as { phase: Phase }).phase));
     mount(
       this.el.brand,
-      h('div.name', 'LORDS OF CONQUEST'),
+      h('div.name', 'CONQUEST'),
       h('div.phase', PHASE_NAMES[s.phase], s.phase === 'select' || s.phase === 'over' ? null : h('span.yr', ` · Year ${s.year}`)),
       h('div.year', s.phase === 'select' ? 'Claim your lands' : `Year ${s.year} · first to ${s.settings.citiesToWin} cities`),
       s.phase === 'select' || s.phase === 'over'
@@ -1372,12 +1380,9 @@ export class GameScreen {
     const T = s.territories;
     const mine = (t: number) => T[t].owner === seat;
     const touching = neighbors(s, target).some(mine);
-    const out: ForceOption[] = touching ? [{ force: null, label: 'Just my borders', bonus: 0 }] : [];
-    const add = (force: Force, label: string) => {
-      // "Horse + weapon from X" -> label "Horse + weapon", place "X".
-      const m = /^(.*?) from (.*)$/.exec(label);
-      out.push({ force, label: m ? m[1] : label, place: m ? m[2] : undefined, bonus: forceBonus(s, target, force) });
-    };
+    const out: ForceOption[] = touching ? [{ force: null, label: 'Just my borders', bonus: 0, group: 'none', cargo: [] }] : [];
+    const add = (force: Force, label: string, place: number, group: string, cargo: string[]) =>
+      out.push({ force, label, place: this.tname(place), group, cargo, bonus: forceBonus(s, target, force) });
     // Horses from two lands away (optionally picking up a weapon on the way).
     const seenHorse = new Set<number>();
     for (const via of neighbors(s, target)) {
@@ -1385,17 +1390,20 @@ export class GameScreen {
       for (const from of neighbors(s, via)) {
         if (from === target || seenHorse.has(from) || !mine(from) || !T[from].horse || adjacent(s, from, target)) continue;
         seenHorse.add(from);
-        add({ kind: 'horse', from, via }, `Horse from ${this.tname(from)}`);
-        if (T[from].weapon) add({ kind: 'horse', from, via, weaponFrom: from }, `Horse + weapon from ${this.tname(from)}`);
-        if (T[via].weapon) add({ kind: 'horse', from, via, weaponFrom: via }, `Horse from ${this.tname(from)} + weapon from ${this.tname(via)}`);
+        const g = `h${from}`;
+        add({ kind: 'horse', from, via }, 'Horse', from, g, []);
+        if (T[from].weapon) add({ kind: 'horse', from, via, weaponFrom: from }, 'Horse', from, g, ['+ weapon']);
+        if (T[via].weapon) add({ kind: 'horse', from, via, weaponFrom: via }, 'Horse', from, g, [`+ weapon from ${this.tname(via)}`]);
       }
     }
     // Units next door, moving in.
     for (const from of neighbors(s, target)) {
       if (!mine(from)) continue;
-      if (T[from].horse) add({ kind: 'horse', from }, `Horse from ${this.tname(from)}`);
-      if (T[from].horse && T[from].weapon) add({ kind: 'horse', from, weaponFrom: from }, `Horse + weapon from ${this.tname(from)}`);
-      if (T[from].weapon) add({ kind: 'weapon', from }, `Weapon from ${this.tname(from)}`);
+      if (T[from].horse) {
+        add({ kind: 'horse', from }, 'Horse', from, `h${from}`, []);
+        if (T[from].weapon) add({ kind: 'horse', from, weaponFrom: from }, 'Horse', from, `h${from}`, ['+ weapon']);
+      }
+      if (T[from].weapon) add({ kind: 'weapon', from }, 'Weapon', from, `w${from}`, []);
     }
     // Boats, with any cargo from their home land.
     if (s.settings.level >= 3) {
@@ -1404,18 +1412,36 @@ export class GameScreen {
         if (t.owner !== seat) return;
         for (const sea of new Set(t.boats)) {
           if (!seas.includes(sea) || freeBerths(s, target, sea) <= 0) continue;
-          const cargo: [boolean, boolean][] = [[false, false]];
-          if (t.horse) cargo.push([true, false]);
-          if (t.weapon) cargo.push([false, true]);
-          if (t.horse && t.weapon) cargo.push([true, true]);
-          for (const [horse, weapon] of cargo) {
-            const what = ['Boat', horse ? 'horse' : '', weapon ? 'weapon' : ''].filter(Boolean).join(' + ');
-            add({ kind: 'boat', from, sea, horse, weapon }, `${what} from ${this.tname(from)}`);
-          }
+          const g = `b${from}:${sea}`;
+          add({ kind: 'boat', from, sea, horse: false, weapon: false }, 'Boat', from, g, []);
+          if (t.horse) add({ kind: 'boat', from, sea, horse: true, weapon: false }, 'Boat', from, g, ['+ horse']);
+          if (t.weapon) add({ kind: 'boat', from, sea, horse: false, weapon: true }, 'Boat', from, g, ['+ weapon']);
+          if (t.horse && t.weapon) add({ kind: 'boat', from, sea, horse: true, weapon: true }, 'Boat', from, g, ['+ horse', '+ weapon']);
         }
       });
     }
     return out;
+  }
+
+  /** Pick the variant of a row with this cargo (or the closest one). */
+  private variantWith(options: ForceOption[], group: string, cargo: string[]): number {
+    const same = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
+    const exact = options.findIndex((o) => o.group === group && same(o.cargo, cargo));
+    if (exact >= 0) return exact;
+    // E.g. a horse can take the weapon from one land or the other, not both.
+    const last = cargo[cargo.length - 1];
+    const close = options.findIndex((o) => o.group === group && o.cargo.includes(last));
+    return close >= 0 ? close : options.findIndex((o) => o.group === group);
+  }
+
+  /** Best variant of a row: strongest, and among equals the one risking least. */
+  private bestVariant(options: ForceOption[], group: string): number {
+    let best = -1;
+    options.forEach((o, i) => {
+      if (o.group !== group) return;
+      if (best < 0 || o.bonus > options[best].bonus || (o.bonus === options[best].bonus && o.cargo.length < options[best].cargo.length)) best = i;
+    });
+    return best;
   }
 
   /** What a brought force consists of. */
@@ -1556,20 +1582,63 @@ export class GameScreen {
       panel,
       this.who(seat, `${title} · ${this.tname(target)}`, null),
       this.vsView(pv.attack, pv.defense, s.territories[target].owner, pv.possible ? null : 'Attack will fail!'),
-      options.length > 1
-        ? h(
-            'div.choice',
-            options.map((o, i) =>
-              h('button', { 'aria-pressed': String(i === ui.force), onclick: () => ((ui.force = i), play('tap'), this.render()) }, h('b', o.label), h('small', (o.place ? `${o.place} · ` : '') + (o.bonus ? `+${o.bonus}` : o.force ? 'moves in' : 'no extra'))),
-            ),
-          )
-        : null,
+      options.length > 1 ? this.forceRows(options, ui.force) : null,
       this.outcomeView(target, opt?.force ?? null, pv.possible ? this.odds(pv.attack, pv.defense) : 0),
       allyNote,
       footer,
     );
     const arrows = opt?.force ? [{ from: opt.force.from, to: target, color }] : [];
     return { selectable: targets, target, arrows };
+  }
+
+  /** One row per thing to bring; the chosen row offers its cargo as toggles. */
+  private forceRows(options: ForceOption[], chosen: number) {
+    const ui = this.ui;
+    const groups: string[] = [];
+    for (const o of options) if (!groups.includes(o.group)) groups.push(o.group);
+    const current = options[chosen];
+    const bonusText = (b: number, o: ForceOption) => (b ? `+${b}` : o.force ? 'moves in' : 'no extra');
+    return h(
+      'div.choice.forces',
+      groups.map((g) => {
+        const isChosen = current?.group === g;
+        const variants = options.filter((o) => o.group === g);
+        const shown = isChosen ? current : options[this.bestVariant(options, g)];
+        const max = Math.max(...variants.map((v) => v.bonus));
+        const row = h(
+          'button',
+          { 'aria-pressed': String(isChosen), onclick: () => ((ui.force = this.bestVariant(options, g)), play('tap'), this.render()) },
+          h('b', shown.label),
+          h('small', (shown.place ? `${shown.place} · ` : '') + (isChosen || max === shown.bonus ? bonusText(shown.bonus, shown) : `up to +${max}`)),
+        );
+        // Cargo toggles for the chosen row.
+        const tokens: string[] = [];
+        for (const v of variants) for (const c of v.cargo) if (!tokens.includes(c)) tokens.push(c);
+        if (!isChosen || !tokens.length) return row;
+        return h(
+          'div.force-group',
+          row,
+          h(
+            'div.cargo',
+            tokens.map((c) =>
+              h(
+                'button.small',
+                {
+                  'aria-pressed': String(current.cargo.includes(c)),
+                  onclick: () => {
+                    const want = current.cargo.includes(c) ? current.cargo.filter((x) => x !== c) : [...current.cargo, c];
+                    ui.force = this.variantWith(options, g, want);
+                    play('tap');
+                    this.render();
+                  },
+                },
+                c,
+              ),
+            ),
+          ),
+        );
+      }),
+    );
   }
 
   private vsView(att: number, def: number, defender: number, failure: string | null = null, attackLabel = 'Attack') {
@@ -1772,7 +1841,9 @@ export class GameScreen {
           // (earliest) one, so forces are not risked for nothing.
           if (ui.target !== null) {
             let bestOdds = -1;
-            this.forceOptions(act.seat, t).forEach((o, i) => {
+            const opts = this.forceOptions(act.seat, t);
+            opts.forEach((o, i) => {
+              if (i !== this.bestVariant(opts, o.group)) return;
               const pv = previewAttack(s, act.seat, t, o.force);
               const odds = (pv.best + pv.worst) / 2;
               if (odds > bestOdds + 1e-9) {
@@ -1835,7 +1906,16 @@ export class GameScreen {
     this.renderer.setHighlight({});
   }
 
+  private gameOverAt = 0;
+
   private showGameOver() {
+    // Let the lands change color first (when the win just happened).
+    const wait = this.gameOverAt - performance.now();
+    if (wait > 0) {
+      this.el.overlay.hidden = true;
+      setTimeout(() => this.state.phase === 'over' && this.showGameOver(), wait + 50);
+      return;
+    }
     const s = this.state;
     const w = s.winner;
     const c = this.color(w);

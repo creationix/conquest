@@ -375,3 +375,8 @@ dialog::backdrop { background: #04131dbb; }
 .game.column .panel .actions > span.muted { flex: 1 1 100%; order: -2; }
 .game.column .panel .choice button b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .game.column .panel .choice button small { white-space: nowrap; flex-shrink: 0; }
+/* Reinforcement rows: the chosen row shows its cargo toggles underneath. */
+.panel .choice.forces .force-group { display: grid; gap: 4px; flex: 1 1 100%; }
+.panel .choice.forces .cargo { display: flex; gap: 6px; flex-wrap: wrap; padding-left: 10px; }
+.panel .choice.forces .cargo button { min-width: 0; flex: 0 0 auto; flex-direction: row; min-height: 32px; padding: 4px 10px; font-size: 12.5px; }
+.game.column .panel .choice.forces { flex-direction: column; }
