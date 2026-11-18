@@ -392,48 +392,99 @@ export function play(sfx: Sfx, options: SfxOptions = {}) {
       }
       return tone(2400, at, 0.5, 'sine', 0.035, 0.7);
     }
-    case 'victory': {
-      // An original, march-like congratulations song (about 17 seconds):
-      // horn melody, harmony that follows it, bass, drums and a final roll.
-      const beat = 60 / 140;
-      const tune: [number, number][] = [
-        [67, 0.5], [67, 0.5], [67, 0.5], [72, 1.5], [76, 1], [74, 0.5], [72, 0.5], [74, 2],
-        [67, 0.5], [67, 0.5], [67, 0.5], [74, 1.5], [77, 1], [76, 0.5], [74, 0.5], [76, 2],
-        [79, 1], [76, 0.5], [72, 0.5], [74, 1], [71, 1], [72, 0.5], [74, 0.5], [76, 1], [72, 2],
-        [77, 1], [76, 0.5], [74, 0.5], [72, 1], [69, 1], [71, 0.5], [72, 0.5], [74, 1.5], [67, 0.5],
-        [79, 1.5], [77, 0.5], [76, 1], [74, 1], [72, 1], [76, 1], [79, 2],
-        [84, 4],
-      ];
-      const midi = (n: number) => 440 * Math.pow(2, (n - 69) / 12);
-      // Harmony: a chord for each two-beat slot, chosen to fit the melody.
-      const chordFor = (n: number) => ([0, 4, 7].includes(n % 12) ? [48, 52, 55] : [5, 9].includes(n % 12) ? [53, 57, 60] : [43, 47, 50]);
-      let t = 0;
-      let slot = -1;
-      for (const [n, len] of tune) {
-        const last = n === 84;
-        horn(t * beat, midi(n), len * beat * 0.92, last ? 0.12 : 0.1);
-        if (n >= 76) horn(t * beat, midi(n - 4), len * beat * 0.9, 0.04); // a third below on the high notes
-        const s2 = Math.floor(t / 2);
-        if (s2 !== slot) {
-          slot = s2;
-          const chord = chordFor(n);
-          tone(midi(chord[0] - 12), t * beat, beat * 1.6, 'triangle', 0.12);
-          if (!last) {
-            tone(midi(chord[1]), t * beat, beat * 1.8, 'triangle', 0.035);
-            tone(midi(chord[2]), t * beat, beat * 1.8, 'triangle', 0.035);
-          }
-          drum(t * beat, 0.22, 100);
-          if (slot % 2 === 1) hiss(t * beat + beat, 0.12, 0.05, 'highpass', 5000);
-        }
-        if (last) {
-          // A drum roll and a ringing final chord.
-          for (let i = 0; i < 12; i++) drum(t * beat + i * 0.06, 0.06 + i * 0.012, 120);
-          [48, 52, 55, 60, 64].forEach((c) => horn(t * beat + 0.75, midi(c), 2.4, 0.05));
-          metal(t * beat + 0.75, 523, 0.06, 2.5);
-        }
-        t += len;
-      }
+    case 'victory':
+      return victorySong(base);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Victory song: an original, upbeat chiptune-style pop tune (about 29 s).
+// A hook over I-V-vi-IV, a driving bass, sparkly arpeggios and a backbeat,
+// then a key change up for the last chorus and a big final chord.
+// Scheduled a bar at a time so slower devices are not flooded with nodes.
+
+const HOOK: [number, number][][] = [
+  [[76, 1], [79, 1], [84, 1], [83, 0.5], [81, 0.5]],
+  [[79, 1.5], [74, 0.5], [79, 1], [81, 0.5], [83, 0.5]],
+  [[84, 0.5], [83, 0.5], [81, 1], [76, 1], [81, 0.5], [84, 0.5]],
+  [[86, 1], [84, 0.5], [81, 0.5], [77, 1], [79, 1]],
+  [[76, 1], [79, 1], [84, 1], [83, 0.5], [81, 0.5]],
+  [[79, 1], [83, 1], [86, 1], [83, 1]],
+  [[84, 1], [81, 1], [76, 0.5], [79, 0.5], [81, 1]],
+  [[77, 0.5], [79, 0.5], [81, 0.5], [83, 0.5], [84, 2]],
+];
+// I V vi IV, twice: chord tones (for stabs and arps) and bass roots.
+const CHORDS = [[60, 64, 67], [59, 62, 67], [60, 64, 69], [60, 65, 69]];
+const ROOTS = [48, 43, 45, 41];
+
+function victorySong(delay: number) {
+  if (!ctx) return;
+  const beat = 60 / 150;
+  const barLen = beat * 4;
+  const t0 = ctx.currentTime + delay + 0.05;
+  const hz = (n: number) => 440 * Math.pow(2, (n - 69) / 12);
+  const at = (t: number) => {
+    // Times relative to "now" for the tone/hiss helpers.
+    base = 0;
+    jitter = 1;
+    return t0 + t - ctx!.currentTime;
+  };
+  const kick = (t: number, g = 0.32) => tone(150, at(t), 0.22, 'sine', g, 0.3, 0.003);
+  const snare = (t: number, g = 0.16) => {
+    hiss(at(t), 0.16, g, 'bandpass', 1900, 0, 0.7);
+    tone(230, at(t), 0.08, 'triangle', g * 0.5);
+  };
+  const hat = (t: number, g = 0.035) => hiss(at(t), 0.04, g, 'highpass', 7500);
+  const lead = (n: number, t: number, d: number) => {
+    tone(hz(n), at(t), d * 0.95, 'square', 0.045, 0, 0.005);
+    tone(hz(n + 12), at(t), d * 0.6, 'triangle', 0.018, 0, 0.005);
+  };
+  const bar = (i: number, shift: number) => {
+    const t = i * barLen;
+    const k = (i - 1) % 4;
+    if (i === 0) {
+      // Intro: a snare build-up under rising arpeggios.
+      for (let j = 0; j < 8; j++) snare(t + j * beat * 0.5, 0.05 + j * 0.018);
+      [60, 64, 67, 72, 76, 79, 84, 88].forEach((n, j) => tone(hz(n), at(t + j * beat * 0.5), 0.18, 'square', 0.03));
       return;
     }
+    if (i === 17) {
+      // Final chord: up in the new key, with a crash.
+      kick(t, 0.4);
+      hiss(at(t), 2.2, 0.08, 'highpass', 5000);
+      [62, 66, 69, 74, 78].forEach((n) => {
+        tone(hz(n), at(t), 2.4, 'square', 0.03, 0, 0.01);
+        tone(hz(n), at(t), 2.6, 'triangle', 0.04, 0, 0.01);
+      });
+      tone(hz(38), at(t), 2.4, 'triangle', 0.14);
+      return;
+    }
+    // Drums: four on the floor with a backbeat and eighth-note hats.
+    for (let b = 0; b < 4; b++) {
+      kick(t + b * beat);
+      if (b % 2 === 1) snare(t + b * beat);
+      hat(t + b * beat + beat / 2);
+    }
+    if (i % 4 === 0) kick(t + 3.5 * beat, 0.22);
+    // Bass: bouncing root and octave in eighths.
+    const root = ROOTS[k] + shift;
+    for (let e = 0; e < 8; e++) tone(hz(e % 2 ? root + 12 : root), at(t + e * beat * 0.5), beat * 0.42, 'triangle', 0.13);
+    // Chord stabs on the offbeats, sixteenth arpeggios for sparkle.
+    const chord = CHORDS[k].map((n) => n + shift);
+    for (const off of [0.5, 1.5, 2.5, 3.5]) for (const n of chord) tone(hz(n), at(t + off * beat), beat * 0.3, 'sawtooth', 0.012);
+    for (let q = 0; q < 16; q++) tone(hz(chord[q % 3] + 12 + (q % 6 >= 3 ? 12 : 0)), at(t + q * beat * 0.25), 0.09, 'triangle', 0.018);
+    // The hook.
+    let m = 0;
+    for (const [n, len] of HOOK[(i - 1) % 8]) {
+      lead(n + shift, t + m * beat, len * beat);
+      m += len;
+    }
+  };
+  // Bars 1-8 in C, then the key change: bars 9-16 up a whole step.
+  for (let i = 0; i <= 17; i++) {
+    const when = t0 + i * barLen - 1.2 - ctx.currentTime;
+    const run = () => bar(i, i >= 9 ? 2 : 0);
+    if (when <= 0) run();
+    else setTimeout(run, when * 1000);
   }
 }

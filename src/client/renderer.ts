@@ -108,6 +108,10 @@ export class MapRenderer {
   // Public API
 
   setState(state: GameState) {
+    if (state.phase !== 'over') {
+      this.shownOwner = null;
+      this.victorySweep = null;
+    }
     const newMap = state.map !== this.map && JSON.stringify(state.map.cells) !== JSON.stringify(this.map?.cells);
     this.state = state;
     if (newMap || !this.map) {
@@ -483,6 +487,7 @@ export class MapRenderer {
     const active: Anim[] = [];
     for (const a of this.anims) if (now < a.start) active.push(a);
 
+    const sweeping = this.stepVictory(now);
     this.ensureCache();
     const cs = this.cacheScale;
     this.worldTransform(ctx);
@@ -506,7 +511,7 @@ export class MapRenderer {
     this.anims = this.anims.filter((a) => active.includes(a));
 
     const pulsing = !!(this.highlight.selected?.length || this.highlight.target !== undefined || this.highlight.arrows?.length || this.highlight.ghosts?.length);
-    if (this.anims.length || pulsing) this.requestDraw();
+    if (this.anims.length || pulsing || sweeping) this.requestDraw();
   }
 
   private drawHighlight(ctx: CanvasRenderingContext2D, pulse: number) {
@@ -542,7 +547,7 @@ export class MapRenderer {
     }
     for (const a of h.arrows ?? []) this.drawArrow(ctx, a.from, a.to, a.color, 1, pulse);
     for (const g of h.ghosts ?? []) this.drawGhostBoat(ctx, g, pulse);
-    if (this.drawVictory(ctx, performance.now())) this.requestDraw();
+
   }
 
   private drawGhostBoat(ctx: CanvasRenderingContext2D, g: NonNullable<Highlight['ghosts']>[number], pulse: number) {
@@ -575,9 +580,11 @@ export class MapRenderer {
     ctx.restore();
   }
 
-  private victorySweep: { color: string; delays: number[]; start: number } | null = null;
+  private victorySweep: { winner: number; color: string; delays: number[]; start: number; flipped: number } | null = null;
+  /** During the victory sweep: lands shown as the winner's, as if conquered. */
+  private shownOwner: number[] | null = null;
 
-  /** Every land turns the winner's color, spreading outward from their realm. */
+  /** Every land turns to the winner, one after another, spreading outward from their realm. */
   celebrate(winner: number) {
     if (!this.state || !this.info || winner < 0) return;
     const s = this.state;
@@ -592,35 +599,37 @@ export class MapRenderer {
       for (const f of frontier) {
         for (const n of this.info.territories[f].neighbors) {
           if (delays[n] >= 0) continue;
-          delays[n] = step * 320;
+          // A little stagger within each ring, so lands fall one by one.
+          delays[n] = step * 420 + next.length * 60;
           next.push(n);
         }
       }
       frontier = next;
     }
-    // Islands unreachable over land join last.
-    delays.forEach((d, i) => d < 0 && (delays[i] = (step + 1) * 320));
-    this.victorySweep = { color, delays, start: performance.now() };
+    // Islands unreachable over land fall last.
+    delays.forEach((d, i) => d < 0 && (delays[i] = (step + 1) * 420 + i * 40));
+    this.shownOwner = s.territories.map((t) => t.owner);
+    this.victorySweep = { winner, color, delays, start: performance.now(), flipped: 0 };
     this.requestDraw();
   }
 
-  private drawVictory(ctx: CanvasRenderingContext2D, now: number): boolean {
+  /** Flip lands whose time has come; returns true while the sweep is still running. */
+  private stepVictory(now: number): boolean {
     const v = this.victorySweep;
-    if (!v) return false;
-    let moving = false;
+    if (!v || !this.shownOwner) return false;
+    let pending = false;
+    let changed = false;
     v.delays.forEach((d, i) => {
-      const p = (now - v.start - d) / 450;
-      if (p <= 0) {
-        moving = true;
-        return;
-      }
-      if (p < 1) moving = true;
-      ctx.globalAlpha = Math.min(1, p) * 0.88;
-      ctx.fillStyle = v.color;
-      ctx.fill(this.shapes[i].path);
+      if (this.shownOwner![i] === v.winner) return;
+      if (now - v.start >= d) {
+        this.shownOwner![i] = v.winner;
+        v.flipped++;
+        changed = true;
+        this.ripple(i, v.color, 0);
+      } else pending = true;
     });
-    ctx.globalAlpha = 1;
-    return moving;
+    if (changed) this.cacheKey = '';
+    return pending;
   }
 
   private center(t: number): { x: number; y: number } {
@@ -862,7 +871,7 @@ export class MapRenderer {
         if (cell === undefined) continue;
         this.boatCells.set(cell, id);
         const [x, y] = cellXY(map, cell);
-        this.paintToken(ctx, x + 0.5, y + 0.5, 'boat', ownerColors(t.owner, s), 0.44, true);
+        this.paintToken(ctx, x + 0.5, y + 0.5, 'boat', ownerColors(this.shownOwner?.[id] ?? t.owner, s), 0.44, true);
       }
     });
   }
@@ -870,7 +879,7 @@ export class MapRenderer {
   private paintTerritory(ctx: CanvasRenderingContext2D, id: number, shape: Shape) {
     const s = this.state!;
     const t = s.territories[id];
-    const colors = ownerColors(t.owner, s);
+    const colors = ownerColors(this.shownOwner?.[id] ?? t.owner, s);
     const grad = ctx.createLinearGradient(0, shape.minY, 0, shape.maxY);
     grad.addColorStop(0, shade(colors.fill, 0.18));
     grad.addColorStop(1, shade(colors.fill, -0.08));
