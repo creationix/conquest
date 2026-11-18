@@ -830,14 +830,21 @@ export function apply(state: GameState, action: Action): GameState {
     }
     case 'offer': {
       if (s.phase !== 'trade') fail('Not trading now');
-      const to = s.players[action.to];
-      if (!to || !to.alive || action.to === p) fail('Choose another player');
+      const targets = [...new Set(Array.isArray(action.to) ? action.to : [action.to])];
+      if (!targets.length) fail('Choose another player');
+      for (const t of targets) {
+        const to = s.players[t];
+        if (!to || !to.alive || t === p) fail('Choose another player');
+      }
       if (!isStock(action.give) || !isStock(action.get)) fail('Bad trade');
       if (!canPay(player.stock, action.give)) fail('You do not have that much');
       if (GOODS.every((g) => action.give[g] === 0 && action.get[g] === 0)) fail('Empty trade');
-      s.trade.offers.push({ id: s.trade.nextId++, from: p, to: action.to, give: { ...action.give }, get: { ...action.get } });
-      s.trade.ready = s.trade.ready.filter((x) => x !== p && x !== action.to);
-      emit(s, { kind: 'offer', from: p, to: action.to, give: { ...action.give }, get: { ...action.get } });
+      const group = targets.length > 1 ? s.trade.nextId : undefined;
+      for (const t of targets) {
+        s.trade.offers.push({ id: s.trade.nextId++, from: p, to: t, give: { ...action.give }, get: { ...action.get }, group });
+        emit(s, { kind: 'offer', from: p, to: t, give: { ...action.give }, get: { ...action.get } });
+      }
+      s.trade.ready = s.trade.ready.filter((x) => x !== p && !targets.includes(x));
       break;
     }
     case 'respond': {
@@ -855,6 +862,8 @@ export function apply(state: GameState, action: Action): GameState {
           player.stock[g] += offer.give[g] - offer.get[g];
         }
         emit(s, { kind: 'trade', from: offer.from, to: p, give: offer.give, get: offer.get });
+        // The same offer sent to others is now taken: withdraw the rest of its group.
+        if (offer.group !== undefined) s.trade.offers = s.trade.offers.filter((o) => o.group !== offer.group);
       } else {
         emit(s, { kind: 'declined', from: offer.from, to: p });
       }

@@ -81,6 +81,8 @@ export interface TradeOffer {
   to: number;
   give: Stock;
   get: Stock;
+  /** Offers sent to several lords at once share a group; the first acceptance withdraws the rest. */
+  group?: number;
 }
 
 export type Phase =
@@ -158,7 +160,8 @@ export type Action =
   | { type: 'placeStockpile'; player: number; territory: number }
   | { type: 'build'; player: number; item: Item; territory: number; pay: Pay; sea?: number }
   | { type: 'done'; player: number }
-  | { type: 'offer'; player: number; to: number; give: Stock; get: Stock }
+  /** `to` may list several lords: the same offer goes to each, first acceptance wins. */
+  | { type: 'offer'; player: number; to: number | number[]; give: Stock; get: Stock }
   | { type: 'respond'; player: number; offer: number; accept: boolean }
   | { type: 'withdraw'; player: number; offer: number }
   | { type: 'ready'; player: number; ready: boolean }

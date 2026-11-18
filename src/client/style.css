@@ -272,8 +272,8 @@ dialog::backdrop { background: #04131dbb; }
 .game.topbar .roster.compact .prow { grid-template-columns: 26px auto; padding: 4px 6px; gap: 4px; }
 .game.topbar .roster.compact .pname { display: none; }
 /* Keep a panel's main buttons in view when its content scrolls. */
-.panel > .actions:last-child { position: sticky; bottom: -14px; margin-bottom: -14px; padding: 10px 0 14px; background: linear-gradient(#0e283300, #0e2833 12px); }
-.game.column .panel > .actions:last-child { bottom: -12px; margin-bottom: -12px; padding-bottom: 12px; }
+.panel > div.actions:last-of-type { position: sticky; bottom: -14px; margin-bottom: -14px; padding: 10px 0 14px; background: linear-gradient(#0e283300, #0e2833 12px); }
+.game.column .panel > div.actions:last-of-type { bottom: -12px; margin-bottom: -12px; padding-bottom: 12px; }
 @media (max-width: 600px) {
   .panel .choice.one-row { flex-wrap: nowrap; }
   .panel .choice.one-row button { flex: 1 1 0; min-width: 0; padding: 7px 6px; }
@@ -355,3 +355,10 @@ dialog::backdrop { background: #04131dbb; }
 .game.phone .yearnotes { padding: 5px 10px; }
 .game.phone .yearnotes .eyebrow { display: none; }
 .game.phone .yearnotes .note { font-size: 12px; }
+/* Trading: each stepper shows how much is available beside it. */
+.trade-cell { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.trade-cell .have { font-size: 11.5px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.trade-cell .have.none { opacity: .5; }
+.seg button .dot { width: 10px; height: 10px; margin-right: 2px; }
+.game.column .trade-cell { gap: 2px 4px; }
+.game.column .trade-cell .have { font-size: 10.5px; width: 100%; padding-left: 4px; }

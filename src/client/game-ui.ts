@@ -57,7 +57,10 @@ interface UiState {
   force: number;
   stockpileMode: boolean;
   tradeAs: number;
-  tradeTo: number | null;
+  /** Set when the player deliberately deselected everyone. */
+  tradeCleared?: boolean;
+  /** Lords the next offer goes to (several at once is allowed). */
+  tradeTo: number[];
   give: Stock;
   get: Stock;
   info: number | null;
@@ -91,7 +94,7 @@ function freshUi(key = ''): UiState {
     force: 0,
     stockpileMode: false,
     tradeAs: -1,
-    tradeTo: null,
+    tradeTo: [],
     give: emptyStock(),
     get: emptyStock(),
     info: null,
@@ -1020,7 +1023,8 @@ export class GameScreen {
     const me = this.player(seat);
     const mine = this.localSeats();
     const others = s.players.filter((p) => p.alive && p.id !== seat);
-    if (ui.tradeTo === null || !others.some((o) => o.id === ui.tradeTo)) ui.tradeTo = others[0]?.id ?? null;
+    ui.tradeTo = ui.tradeTo.filter((id) => others.some((o) => o.id === id));
+    if (!ui.tradeTo.length && others.length && !ui.tradeCleared) ui.tradeTo = [others[0].id];
     const ready = s.trade.ready.includes(seat);
     const incoming = s.trade.offers.filter((o) => o.to === seat);
     const outgoing = s.trade.offers.filter((o) => o.from === seat);
@@ -1036,61 +1040,121 @@ export class GameScreen {
           )
         : null;
 
-    const offerLine = (o: (typeof s.trade.offers)[number], mineSide: 'in' | 'out') =>
+    const incomingLine = (o: (typeof s.trade.offers)[number]) =>
       h(
         'div.offer',
-        h('span.dot', { style: { background: this.color(mineSide === 'in' ? o.from : o.to).fill } }),
-        mineSide === 'in'
-          ? h('span', h('b', this.player(o.from).name), ' gives ', stockView(o.give, true), ' for ', stockView(o.get, true))
-          : h('span', 'To ', h('b', this.player(o.to).name), ': ', stockView(o.give, true), ' for ', stockView(o.get, true)),
+        h('span.dot', { style: { background: this.color(o.from).fill } }),
+        h('span', h('b', this.player(o.from).name), ' gives ', stockView(o.give, true), ' for ', stockView(o.get, true)),
         h('span.spacer'),
-        mineSide === 'in'
-          ? [
-              h('button.small.primary', { disabled: !canPay(me.stock, o.get), onclick: () => this.act({ type: 'respond', player: seat, offer: o.id, accept: true }) }, 'Accept'),
-              h('button.small', { onclick: () => this.act({ type: 'respond', player: seat, offer: o.id, accept: false }) }, 'Decline'),
-            ]
-          : h('button.small', { onclick: () => this.act({ type: 'withdraw', player: seat, offer: o.id }) }, 'Withdraw'),
+        h('button.small.primary', { disabled: !canPay(me.stock, o.get), onclick: () => this.act({ type: 'respond', player: seat, offer: o.id, accept: true }) }, 'Accept'),
+        h('button.small', { onclick: () => this.act({ type: 'respond', player: seat, offer: o.id, accept: false }) }, 'Decline'),
+      );
+    // Outgoing offers: copies sent to several lords show as one line.
+    const groups = new Map<number, (typeof s.trade.offers)[number][]>();
+    for (const o of outgoing) {
+      const k = o.group ?? -o.id;
+      groups.set(k, [...(groups.get(k) ?? []), o]);
+    }
+    const outgoingLine = (list: (typeof s.trade.offers)[number][]) =>
+      h(
+        'div.offer',
+        list.map((o) => h('span.dot', { style: { background: this.color(o.to).fill } })),
+        h(
+          'span',
+          'To ',
+          h('b', list.map((o) => this.player(o.to).name).join(', ')),
+          ': ',
+          stockView(list[0].give, true),
+          ' for ',
+          stockView(list[0].get, true),
+          list.length > 1 ? h('small.muted', ' (first to accept)') : null,
+        ),
+        h('span.spacer'),
+        h('button.small', { onclick: () => list.forEach((o) => this.session.dispatch({ type: 'withdraw', player: seat, offer: o.id })) }, 'Withdraw'),
       );
 
-    const partner = ui.tradeTo;
-    const partnerLocal = partner !== null && this.session.controls(partner);
-    const stepper = (stock: Stock, g: (typeof GOODS)[number], max: number) =>
+    const partners = ui.tradeTo;
+    const partnerLocal = partners.length === 1 && this.session.controls(partners[0]);
+    // The most any chosen partner could give of each good.
+    const theirs = emptyStock();
+    for (const id of partners) for (const g of GOODS) theirs[g] = Math.max(theirs[g], this.player(id).stock[g]);
+    const cell = (stock: Stock, g: (typeof GOODS)[number], max: number, note: string) =>
       h(
-        'span.stepper',
-        h('button', { disabled: stock[g] <= 0, onclick: () => ((stock[g] -= 1), this.render()), 'aria-label': 'less' }, '−'),
-        h('output', String(stock[g])),
-        h('button', { disabled: stock[g] >= max, onclick: () => ((stock[g] += 1), this.render()), 'aria-label': 'more' }, '+'),
+        'span.trade-cell',
+        h(
+          'span.stepper',
+          h('button', { disabled: stock[g] <= 0, onclick: () => ((stock[g] -= 1), this.render()), 'aria-label': 'less' }, '−'),
+          h('output', String(stock[g])),
+          h('button', { disabled: stock[g] >= max, onclick: () => ((stock[g] += 1), this.render()), 'aria-label': 'more' }, '+'),
+        ),
+        h('small.have', { class: max === 0 ? 'none' : '' }, note),
       );
-    const theirs = partner !== null ? this.player(partner).stock : emptyStock();
     const empty = GOODS.every((g) => ui.give[g] === 0 && ui.get[g] === 0);
-    const composer =
-      partner === null
-        ? null
-        : h(
-            'div',
-            h('div.row', { style: { marginTop: '10px' } }, h('span.muted', 'Trade with'), h('div.seg', others.map((o) => h('button', { 'aria-pressed': String(o.id === partner), onclick: () => ((ui.tradeTo = o.id), this.render()) }, o.name)))),
-            h(
-              'div.trade-grid',
-              h('span'),
-              h('span.hdr', `${me.name} gives`),
-              h('span.hdr', `${this.player(partner).name} gives`),
-              GOODS.map((g) => [h('span.row', goodIcon(g), GOOD_LABELS[g]), stepper(ui.give, g, me.stock[g]), stepper(ui.get, g, partnerLocal ? theirs[g] : 99)]),
-            ),
-            h(
-              'div.actions',
-              h('span.spacer'),
-              h(
+    const togglePartner = (id: number) => {
+      ui.tradeTo = ui.tradeTo.includes(id) ? ui.tradeTo.filter((x) => x !== id) : [...ui.tradeTo, id];
+      ui.tradeCleared = !ui.tradeTo.length;
+      // Asking for more than the new partners have makes no sense.
+      for (const g of GOODS) ui.get[g] = Math.min(ui.get[g], Math.max(0, ...ui.tradeTo.map((x) => this.player(x).stock[g])));
+      this.render();
+    };
+    const everyone = others.length > 1 && others.every((o) => partners.includes(o.id));
+    const theyLabel = partners.length === 1 ? `${this.player(partners[0]).name} gives` : partners.length ? 'They give' : 'They give';
+    const offerLabel = partnerLocal
+      ? 'Make this trade'
+      : everyone
+        ? 'Offer to everyone'
+        : partners.length
+          ? `Offer to ${partners.map((x) => this.player(x).name).join(' and ')}`
+          : 'Offer';
+    const composer = h(
+      'div',
+      h(
+        'div.row',
+        { style: { marginTop: '10px' } },
+        h('span.muted', 'Trade with'),
+        h(
+          'div.seg',
+          others.map((o) =>
+            h('button', { 'aria-pressed': String(partners.includes(o.id)), onclick: () => togglePartner(o.id) }, h('span.dot', { style: { background: this.color(o.id).fill } }), o.name),
+          ),
+          others.length > 1
+            ? h(
                 'button',
                 {
-                  class: partnerLocal ? 'primary' : '',
-                  disabled: empty,
-                  onclick: () => this.makeOffer(seat, partner, partnerLocal),
+                  'aria-pressed': String(everyone),
+                  onclick: () => {
+                    ui.tradeTo = everyone ? [] : others.map((o) => o.id);
+                    ui.tradeCleared = !ui.tradeTo.length;
+                    this.render();
+                  },
                 },
-                icon('trade'),
-                partnerLocal ? 'Make this trade' : `Offer to ${this.player(partner).name}`,
-              ),
-            ),
-          );
+                'Everyone',
+              )
+            : null,
+        ),
+      ),
+      partners.length > 1 ? h('p', { style: { fontSize: '12.5px' } }, 'The same offer goes to each of them; the first to accept gets it.') : null,
+      h(
+        'div.trade-grid',
+        h('span'),
+        h('span.hdr', `${me.name} gives`),
+        h('span.hdr', theyLabel),
+        GOODS.map((g) => [
+          h('span.row', goodIcon(g), GOOD_LABELS[g]),
+          cell(ui.give, g, me.stock[g], `of ${me.stock[g]}`),
+          cell(ui.get, g, theirs[g], partners.length > 1 ? `up to ${theirs[g]}` : `of ${theirs[g]}`),
+        ]),
+      ),
+    );
+    // The offer button lives in the always-visible footer; it is the main
+    // action once a deal is set up.
+    const offerButton = h(
+      'button',
+      { class: empty || !partners.length ? '' : 'primary', disabled: empty || !partners.length, onclick: () => this.makeOffer(seat, partners, partnerLocal) },
+      icon('trade'),
+      offerLabel,
+    );
+    const anyAi = partners.some((x) => this.player(x).ai);
     mount(
       panel,
       this.who(
@@ -1098,16 +1162,16 @@ export class GameScreen {
         ready ? `${me.name} is done trading` : `${me.name}: trading`,
         h(
           'p',
-          partner !== null && this.player(partner).ai
-            ? `${this.player(partner).name} is a computer lord: offer a deal and it accepts if the trade helps it. `
+          anyAi
+            ? 'Computer lords accept a deal if it helps them. '
             : 'Make deals out loud, then record them here. ',
           'Your stockpile: ',
           stockView(me.stock),
         ),
       ),
       asRow,
-      incoming.map((o) => offerLine(o, 'in')),
-      outgoing.map((o) => offerLine(o, 'out')),
+      incoming.map(incomingLine),
+      [...groups.values()].map(outgoingLine),
       ready ? null : composer,
       h(
         'div.actions',
@@ -1115,30 +1179,34 @@ export class GameScreen {
         h('span.spacer'),
         ready
           ? h('button', { onclick: () => this.act({ type: 'ready', player: seat, ready: false }) }, 'Keep trading')
-          : h('button.primary', { onclick: () => this.act({ type: 'ready', player: seat, ready: true }) }, 'Done trading'),
+          : [
+              h('button', { class: empty ? 'primary' : '', onclick: () => this.act({ type: 'ready', player: seat, ready: true }) }, 'Done trading'),
+              offerButton,
+            ],
       ),
     );
     return {};
   }
 
-  private makeOffer(seat: number, to: number, local: boolean) {
+  private makeOffer(seat: number, to: number[], local: boolean) {
     const s = this.state;
     const id = s.trade.nextId;
     const give = { ...this.ui.give };
     const get = { ...this.ui.get };
-    const err = this.session.dispatch({ type: 'offer', player: seat, to, give, get });
+    const err = this.session.dispatch({ type: 'offer', player: seat, to: to.length === 1 ? to[0] : to, give, get });
     if (err) return this.toast(err, true);
     this.ui.give = emptyStock();
     this.ui.get = emptyStock();
     if (local) {
       // Both people are holding this device and agreed out loud.
-      const e2 = this.session.dispatch({ type: 'respond', player: to, offer: id, accept: true });
+      const e2 = this.session.dispatch({ type: 'respond', player: to[0], offer: id, accept: true });
       if (e2) this.toast(e2, true);
     } else {
-      this.toast(`Offer sent to ${this.player(to).name}`);
+      this.toast(`Offer sent to ${to.map((x) => this.player(x).name).join(' and ')}`);
     }
     this.render();
   }
+
 
   // Shipment ------------------------------------------------------------------
 

@@ -411,3 +411,19 @@ test('computer neighbors do not gang up on a lord who is only slightly ahead', (
   next = apply(s, { type: 'plan', player: 0, target: 1, force: null });
   assert.deepEqual(chooseAction(next, 2), { type: 'ally', player: 2, side: 'defender' });
 });
+
+test('an offer to several lords goes to the first who accepts', () => {
+  const s = createGame(settings({ selection: 'deal' }), humans(4));
+  s.phase = 'trade';
+  s.placing = [];
+  s.players[0].stock = { gold: 2, iron: 0, coal: 0, timber: 0 };
+  s.players[1].stock = { gold: 0, iron: 3, coal: 0, timber: 0 };
+  s.players[2].stock = { gold: 0, iron: 3, coal: 0, timber: 0 };
+  let next = apply(s, { type: 'offer', player: 0, to: [1, 2], give: { ...emptyStock(), gold: 2 }, get: { ...emptyStock(), iron: 2 } });
+  assert.deepEqual(next.trade.offers.map((o) => o.to), [1, 2]);
+  const second = next.trade.offers[1].id;
+  next = apply(next, { type: 'respond', player: 2, offer: second, accept: true });
+  assert.equal(next.players[0].stock.iron, 2);
+  assert.equal(next.players[2].stock.gold, 2);
+  assert.deepEqual(next.trade.offers, [], 'the copy sent to player 1 was withdrawn');
+});
