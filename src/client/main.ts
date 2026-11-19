@@ -1,14 +1,15 @@
 import './style.css';
-import type { Lobby } from '../engine/protocol.ts';
+import type { Lobby, RoomView } from '../engine/protocol.ts';
 import { actors, createGame, info } from '../engine/rules.ts';
 import { chooseAction } from '../engine/ai.ts';
 import { setMood, setupAudio } from './audio.ts';
 import { setupInstall } from './pwa.ts';
 import { GameScreen } from './game-ui.ts';
 import { showRules } from './rules-ui.ts';
-import { loadSave, LocalSession, NetSession, clearSave, deviceName, setDeviceName } from './session.ts';
+import { loadSave, LocalSession, NetSession, clearSave, clientId, deviceName, setDeviceName } from './session.ts';
 import { hostBanner, loadLobby, renderJoin, renderSetup, saveLobby, showConnecting, showHome } from './setup-ui.ts';
-import { loadHosted, normalizeCode, PeerClient, PeerHost, rememberedJoin, type JoinStatus, type Link } from './peer.ts';
+import { loadNet, NetGame, normalizeCode } from '../net/net.ts';
+import type { Room } from '../net/room.ts';
 
 const root = document.getElementById('app')!;
 let cleanup: (() => void) | null = null;
@@ -25,12 +26,12 @@ function home() {
   setMood('peace');
   swap(() => {
     const save = loadSave();
-    const hosted = loadHosted();
+    const net = loadNet();
     return showHome(root, {
       resume: save ? () => playLocal(save) : null,
-      resumeHosted: hosted?.state ? () => hostGame(true) : null,
+      resumeHosted: net ? resumeNet : null,
       newGame: setupLocal,
-      host: () => hostGame(false),
+      host: hostGame,
       join: () => joinGame(),
       rules: showRules,
     });
@@ -82,42 +83,43 @@ function playLocal(state: ReturnType<typeof createGame>) {
 
 // ---------------------------------------------------------------------------
 // Several devices: host a game (shows a code) or join one by its code.
+// See docs/network.md; the room and its rules live in src/net/.
 
-let linkOff: (() => void) | null = null;
-let hosting: PeerHost | null = null;
+let current: NetGame | null = null;
+let netOff: (() => void)[] = [];
+const ACTIVE_KEY = 'conquest-net-active';
 
-function closeNet() {
-  linkOff?.();
-  linkOff = null;
-  hosting = null;
+function remember(code: string | null) {
+  try {
+    if (code) sessionStorage.setItem(ACTIVE_KEY, code);
+    else sessionStorage.removeItem(ACTIVE_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
-/** Host a new game, or resume the one this device was hosting. */
-function hostGame(resume = false) {
+function closeNet() {
+  for (const off of netOff) off();
+  netOff = [];
+  statusPill.remove();
+  current = null;
+}
+
+function hostGame() {
   closeNet();
-  const host = new PeerHost(loadLobby(), resume ? loadHosted() : null);
-  hosting = host;
-  const banner = hostBanner(host.code, host.status);
-  host.onStatus = (status, detail) => banner.update(host.code, status, detail);
-  runRoom(host.link, {
-    banner: banner.el,
-    // The host leaving the lobby closes the game for everyone.
-    onLeaveLobby: () => {
-      if (!confirm('Close this game for everyone?')) return;
-      host.close();
-      home();
-    },
-    // Mid-game the host can step away: the game is saved and resumes with the same code.
-    onLeaveGame: () => {
-      if (!confirm('Others cannot play while you are away. Leave for now? You can continue it from the home screen.')) return;
-      host.suspend();
-      home();
-    },
-  });
+  runNet(NetGame.host(clientId(), deviceName(), loadLobby()));
+}
+
+function resumeNet() {
+  const saved = loadNet();
+  if (!saved) return home();
+  closeNet();
+  runNet(NetGame.resume(clientId(), deviceName(), saved));
 }
 
 function joinGame(prefill = '') {
   closeNet();
+  remember(null);
   swap(() =>
     renderJoin(root, {
       code: prefill,
@@ -133,51 +135,103 @@ function joinGame(prefill = '') {
 
 function connectTo(code: string) {
   closeNet();
-  const client = new PeerClient(code);
-  const status = (s: JoinStatus) => {
-    if (s === 'not-found') {
-      client.close();
-      alert(`No game found with the code ${code}. Check the code with the host.`);
-      joinGame(code);
-    } else if (s === 'closed') {
-      alert('The host closed the game.');
-      home();
-    } else if (!client.room) showConnecting(root, code, s, () => (client.close(), home()));
-  };
-  client.onStatus = status;
-  status(client.status);
-  runRoom(client, {
-    banner: null,
-    onLeaveLobby: () => (client.close(), home()),
-    onLeaveGame: () => (client.close(), home()),
-  });
+  const saved = loadNet();
+  runNet(saved && saved.code === code ? NetGame.resume(clientId(), deviceName(), saved) : NetGame.join(clientId(), deviceName(), code));
 }
 
-/** Drive the lobby and game screens from a link's room. */
-function runRoom(l: Link, opts: { banner: HTMLElement | null; onLeaveLobby: () => void; onLeaveGame: () => void }) {
-  let view: 'lobby' | 'game' | null = null;
+/** A small notice over the game while the connection is not right. */
+const statusPill = document.createElement('div');
+statusPill.className = 'net-pill';
+
+function toView(room: Room): RoomView {
+  const seats: Record<number, string> = {};
+  room.seats.forEach((c, i) => {
+    if (c.kind === 'device') seats[i] = c.id;
+  });
+  const host = room.devices.find((d) => d.id === room.host);
+  return { id: room.code, name: `${host?.name ?? 'Host'}’s game`, host: room.host, lobby: room.lobby, seats, clients: room.devices, state: room.game };
+}
+
+/** Drive the connecting, lobby and game screens from a network game. */
+function runNet(g: NetGame) {
+  current = g;
+  let view: 'connecting' | 'lobby' | 'game' | null = null;
   let lobbyForm: ReturnType<typeof renderSetup> | null = null;
+  let screen: GameScreen | null = null;
+  let banner: ReturnType<typeof hostBanner> | null = null;
+  const leave = () => {
+    remember(null);
+    closeNet();
+    home();
+  };
+  const leaveLobby = () => {
+    if (g.isHost) {
+      if (!confirm('Close this game for everyone?')) return;
+      g.closeForEveryone();
+    } else g.leave();
+    leave();
+  };
+  const leaveGame = () => {
+    const others = g.room?.devices.some((d) => d.id !== g.me && d.online);
+    const msg = g.isHost
+      ? others
+        ? 'Leave the game? Another device takes over hosting and the computer plays your lords.'
+        : 'Leave for now? You can continue this game from the home screen.'
+      : 'Leave the game? The computer plays your lords until someone takes them over.';
+    if (!confirm(msg)) return;
+    g.leave();
+    leave();
+  };
   const show = () => {
-    const room = l.room;
-    if (!room) return;
-    if (!room.state) {
-      const isHost = room.host === l.id;
+    if (current !== g) return;
+    const room = g.room;
+    // Ended by the host.
+    if (g.status === 'closed' || g.status === 'removed') {
+      const removed = g.status === 'removed';
+      leave();
+      setTimeout(() => alert(removed ? 'The host removed this device from the game.' : 'The host closed the game.'), 50);
+      return;
+    }
+    if (g.status === 'not-found') {
+      closeNet();
+      alert(`No game found with the code ${g.code}. Check the code with the host.`);
+      joinGame(g.code);
+      return;
+    }
+    remember(g.code);
+    // Connection notice over the lobby or game.
+    const trouble = room && g.status !== 'online' && view !== 'connecting';
+    statusPill.textContent = g.status === 'offline' ? 'No internet connection…' : g.isHost ? 'Getting the code ready…' : 'Reconnecting…';
+    if (trouble && !statusPill.isConnected) document.body.appendChild(statusPill);
+    if (!trouble) statusPill.remove();
+    if (!room || (!room.game && !g.isHost && g.status !== 'online')) {
+      if (view !== 'connecting') {
+        view = 'connecting';
+        swap(() => showConnecting(root, g.code, g.status, leaveLobby));
+      }
+      return;
+    }
+    if (!room.game) {
+      if (g.isHost) {
+        banner ??= hostBanner(g.code, g.status);
+        banner.update(g.code, g.status);
+      } else banner = null;
       const props = {
-        title: isHost ? 'Your game' : room.name,
+        title: g.isHost ? 'Your game' : toView(room).name,
         lobby: room.lobby,
-        editable: isHost,
-        room,
-        myId: l.id,
-        extra: opts.banner,
+        editable: g.isHost,
+        room: toView(room),
+        myId: g.me,
+        extra: banner?.el ?? null,
         onChange: (lobby: Lobby) => {
           saveLobby(lobby);
-          l.send({ t: 'lobby', lobby });
+          g.request({ t: 'setup', lobby });
           lobbyForm?.update({ lobby });
         },
-        onClaim: (seat: number, claim: boolean) => l.send({ t: 'claim', seat, claim }),
-        onStart: isHost ? () => l.send({ t: 'start' }) : null,
-        onBack: opts.onLeaveLobby,
-        backLabel: isHost ? 'Close game' : 'Leave',
+        onClaim: (seat: number, claim: boolean) => g.request({ t: 'seat', seat, to: claim ? 'me' : 'open' }),
+        onStart: g.isHost ? () => g.request({ t: 'start' }) : null,
+        onBack: leaveLobby,
+        backLabel: g.isHost ? 'Close game' : 'Leave',
       };
       if (view === 'lobby' && lobbyForm) lobbyForm.update(props);
       else {
@@ -193,26 +247,28 @@ function runRoom(l: Link, opts: { banner: HTMLElement | null; onLeaveLobby: () =
       view = 'game';
       lobbyForm = null;
       swap(() => {
-        const session = new NetSession(l);
-        const screen = new GameScreen(root, session, opts.onLeaveGame);
-        (window as unknown as { __conquest: unknown }).__conquest = { session, screen, chooseAction, actors, info, hosting };
+        const session = new NetSession(g);
+        const s = new GameScreen(root, session, leaveGame);
+        screen = s;
+        session.onRoom = () => s.render();
+        (window as unknown as { __conquest: unknown }).__conquest = { session, screen: s, chooseAction, actors, info, net: g };
         return () => {
-          screen.destroy();
+          screen = null;
+          s.destroy();
           session.close();
         };
       });
     }
+    void screen;
   };
-  linkOff?.();
-  linkOff = l.on((msg) => {
-    if (msg.t === 'error') {
-      if (view === 'lobby' && msg.message !== 'Reconnecting…') alert(msg.message);
-      return;
-    }
-    show();
-  });
-  if (l.room) show();
-  else if (l === hosting?.link) l.send({ t: 'hello', clientId: l.id, name: l.name });
+  netOff.push(g.onChange(show));
+  netOff.push(
+    g.onError((m) => {
+      if (view === 'lobby' && m !== 'Reconnecting…' && m !== 'Not connected yet') alert(m);
+    }),
+  );
+  netOff.push(() => g.end(false));
+  show();
 }
 
 // ---------------------------------------------------------------------------
@@ -222,10 +278,15 @@ setupAudio();
 setupInstall();
 {
   // After a reload, rejoin the game this device was in.
-  const joined = rememberedJoin();
+  let active: string | null = null;
+  try {
+    active = sessionStorage.getItem(ACTIVE_KEY);
+  } catch {
+    /* ignore */
+  }
   const code = new URLSearchParams(location.search).get('join');
   if (code) joinGame(normalizeCode(code));
-  else if (joined) connectTo(joined);
+  else if (active) connectTo(active);
   else home();
 }
 

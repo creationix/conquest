@@ -400,3 +400,6 @@ dialog::backdrop { background: #04131dbb; }
 .code-input:focus { border-color: var(--accent); outline: none; }
 .sheet input:not(.code-input) { width: 100%; background: #071a23; border: 1px solid #ffffff22; border-radius: 11px; padding: 10px 12px; }
 .code-inline { color: var(--accent); letter-spacing: 3px; font-size: 18px; }
+
+/* Network trouble notice over the game */
+.net-pill { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); left: 50%; transform: translateX(-50%); z-index: 60; background: #6b2f35; color: #ffd9dc; font-weight: 700; font-size: 13px; padding: 6px 14px; border-radius: 99px; box-shadow: 0 4px 14px #0007; pointer-events: none; }

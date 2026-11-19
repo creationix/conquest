@@ -2,8 +2,8 @@
 // (Electronic Arts), as described in its manual.
 //
 // The game state is plain JSON. `apply` validates an action, mutates a copy
-// and returns it, so the same code runs in the browser (pass and play) and on
-// the LAN server (authoritative host for several devices).
+// and returns it, so the same code runs pass and play and, on the hosting
+// device, network games.
 
 import { analyze, generateMap, fromLegacy, type MapData, type MapInfo } from './map.ts';
 import { Rng, hashSeed } from './rng.ts';

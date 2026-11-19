@@ -1,6 +1,6 @@
 // Owns one authoritative game: applies actions, notifies listeners and lets
 // computer players take their turns at a watchable pace. Used in the browser
-// for single-device games and on the LAN server for multi-device games.
+// for single-device games; network games use src/net/ instead.
 
 import { chooseAction } from './ai.ts';
 import { actors, tryApply } from './rules.ts';
@@ -80,20 +80,25 @@ export class GameHost {
   }
 
   private delayFor(s: GameState): number {
-    // After a battle, give people time to see what happened.
-    const last = s.log[s.log.length - 1]?.event;
-    if (last && (last.kind === 'battle' || last.kind === 'eliminated')) return last.kind === 'battle' && last.looted ? 3800 : 2600;
-    switch (s.phase) {
-      case 'select':
-        return 450;
-      case 'production':
-        return 600;
-      case 'trade':
-        return 900;
-      case 'conquest':
-        return s.conquest.plan ? 1500 : 1100;
-      default:
-        return 900;
-    }
+    return paceFor(s);
+  }
+}
+
+/** How long a computer lord waits before its move, so people can follow along. */
+export function paceFor(s: GameState): number {
+  // After a battle, give people time to see what happened.
+  const last = s.log[s.log.length - 1]?.event;
+  if (last && (last.kind === 'battle' || last.kind === 'eliminated')) return last.kind === 'battle' && last.looted ? 3800 : 2600;
+  switch (s.phase) {
+    case 'select':
+      return 450;
+    case 'production':
+      return 600;
+    case 'trade':
+      return 900;
+    case 'conquest':
+      return s.conquest.plan ? 1500 : 1100;
+    default:
+      return 900;
   }
 }

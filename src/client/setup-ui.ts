@@ -84,7 +84,7 @@ export function showHome(root: HTMLElement, actions: HomeActions): () => void {
     h(
       'div.stack',
       actions.resume ? h('button.primary', { onclick: actions.resume }, 'Continue game') : null,
-      actions.resumeHosted ? h('button.primary', { onclick: actions.resumeHosted }, icon('device'), 'Continue hosted game') : null,
+      actions.resumeHosted ? h('button.primary', { onclick: actions.resumeHosted }, icon('device'), 'Continue network game') : null,
       h('button', { class: actions.resume || actions.resumeHosted ? '' : 'primary', onclick: actions.newGame }, 'New game on this device'),
       h('div.row', { style: { gap: '8px', flexWrap: 'nowrap' } }, h('button', { style: { flex: '1' }, onclick: actions.host }, icon('device'), 'Host a game'), h('button', { style: { flex: '1' }, onclick: actions.join }, 'Join a game')),
       h('button.quiet', { onclick: actions.rules }, icon('scroll'), 'How to play'),

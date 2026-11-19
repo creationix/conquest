@@ -42,7 +42,7 @@ import { closeDialog, h, mount, openDialog, svgIcon } from './dom.ts';
 import { GOOD_LABELS, ICONS, STROKED, type IconName } from './icons.ts';
 import { MapRenderer, type Highlight } from './renderer.ts';
 import { showRules } from './rules-ui.ts';
-import type { Session } from './session.ts';
+import type { NetSession, Session } from './session.ts';
 import { canFullscreen, isFullscreen, onFullscreenChange, toggleFullscreen } from './pwa.ts';
 
 type ShipKind = Move['kind'];
@@ -845,14 +845,127 @@ export class GameScreen {
       const waitingAllies = plan.allies.filter((a) => a.side === null).map((a) => this.player(a.player).name);
       if (waitingAllies.length) doing = `is attacking ${this.tname(plan.target)}; waiting for ${waitingAllies.join(' and ')} to choose a side`;
     }
-    const lead = who.length ? who[0] : -1;
     const title = who.length === 1 ? `${names[0]} ${doing}` : `Waiting for ${names.join(', ')}`;
+    const net = this.net();
+    // Someone we are waiting for has dropped off: anyone here can step in,
+    // and otherwise the computer plays their turn after a short wait.
+    const stuck = net ? who.filter((p) => { const i = net.seatInfo(p); return !i.ai && !i.online; }) : [];
+    const stuckRows = stuck.map((p) => {
+      const name = this.player(p).name;
+      const device = net!.seatInfo(p).holder ? `${net!.seatInfo(p).name} is offline` : 'No device is playing';
+      return h(
+        'div.offer.ask',
+        h('div', h('span.dot', { style: { background: this.color(p).fill } }), h('b', name), `: ${device}. The computer plays this turn for them shortly.`),
+        h(
+          'div.row',
+          h('button.small', { onclick: () => net!.claimSeat(p) }, `Play ${name} here`),
+          net!.isHost ? h('button.small', { onclick: () => net!.toComputer(p) }, 'Computer from now on') : null,
+        ),
+      );
+    });
     mount(
       panel,
       h('div.waiting', h('span.spinner'), h('div', h('h3', title), h('p', 'Tap any territory to inspect it.'))),
-      lead >= 0 ? null : null,
+      stuckRows,
+      this.seatOffers(),
     );
     return hl;
+  }
+
+  private net(): NetSession | null {
+    return this.session.kind === 'net' ? (this.session as NetSession) : null;
+  }
+
+  /** Lords this device could take over: played by the computer, or by a device that is gone. */
+  private openSeats(): number[] {
+    const net = this.net();
+    if (!net || this.state.phase === 'over') return [];
+    return this.state.players.filter((p) => p.alive && !net.controls(p.id) && (net.seatInfo(p.id).ai || !net.seatInfo(p.id).online)).map((p) => p.id);
+  }
+
+  /** "Take a seat" for a device that is only watching (e.g. joined late). */
+  private seatOffers(): HTMLElement | null {
+    const net = this.net();
+    if (!net || this.localSeats().length) return null;
+    const open = this.openSeats();
+    if (!open.length) return h('p', "You're watching. A seat opens up when a lord is handed to the computer.");
+    return h(
+      'div',
+      h('p', "You're watching. Take a seat to play:"),
+      h(
+        'div.choice',
+        open.map((p) =>
+          h(
+            'button',
+            { onclick: () => net.claimSeat(p) },
+            h('span.dot', { style: { background: this.color(p).fill } }),
+            h('b', this.player(p).name),
+            h('small', net.seatInfo(p).ai ? 'computer' : `${net.seatInfo(p).name} offline`),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /** Menu section: who plays each lord, and the devices at the table. */
+  private playersSection(close: () => void): HTMLElement | null {
+    const net = this.net();
+    const s = this.state;
+    if (!net || s.phase === 'over') return null;
+    const open = new Set(this.openSeats());
+    const rows = s.players
+      .filter((p) => p.alive)
+      .map((p) => {
+        const i = net.seatInfo(p.id);
+        const who = i.ai ? 'Computer' : i.mine ? 'This device' : `${i.name}${i.online ? '' : ' (offline)'}`;
+        const buttons: HTMLElement[] = [];
+        if (open.has(p.id) || (net.isHost && !i.mine)) buttons.push(h('button.small', { onclick: () => (close(), net.claimSeat(p.id)) }, 'Play here'));
+        if ((net.isHost || i.mine) && !i.ai) buttons.push(h('button.small', { onclick: () => (close(), net.toComputer(p.id)) }, 'To computer'));
+        return h('div.offer', h('span.dot', { style: { background: this.color(p.id).fill } }), h('b', p.name), h('span.muted', ` · ${who}`), h('span.spacer'), buttons);
+      });
+    const devices = net.devices().map((d) =>
+      h(
+        'div.offer',
+        h('span', icon('device')),
+        h('span', d.name, h('span.muted', `${d.me ? ' (this device)' : ''}${d.host ? ' · host' : ''}${d.online ? '' : ' · offline'}`)),
+        h('span.spacer'),
+        net.isHost && !d.me && d.online
+          ? h(
+              'button.small',
+              {
+                onclick: () => {
+                  if (!confirm(`Let ${d.name} host the game? This device stays in the game.`)) return;
+                  close();
+                  net.handoff(d.id);
+                },
+              },
+              'Make host',
+            )
+          : null,
+        net.isHost && !d.me
+          ? h(
+              'button.small.danger',
+              {
+                onclick: () => {
+                  if (!confirm(`Remove ${d.name} from the game? Its lords will be played by the computer until someone takes them over.`)) return;
+                  close();
+                  net.kick(d.id);
+                },
+              },
+              'Remove',
+            )
+          : null,
+      ),
+    );
+    const sub = { style: { margin: '14px 0 4px', fontSize: '15px' } };
+    return h(
+      'div',
+      h('h3', sub, 'Players'),
+      rows,
+      h('h3', sub, 'Devices'),
+      devices,
+      h('p.muted', { style: { fontSize: '12.5px', margin: '6px 0 0' } }, 'Others join with the game code. If a device drops off, the computer plays its turns until it comes back; if the host drops off, another device takes over.'),
+    );
   }
 
   private renderSelect(panel: HTMLElement, seat: number): Highlight {
@@ -1526,6 +1639,19 @@ export class GameScreen {
             ),
           );
         }
+        const net = this.net();
+        if (a.side === null && net && !net.seatInfo(a.player).ai && !net.seatInfo(a.player).online) {
+          // Their device dropped off: the host can hand the decision on.
+          return h(
+            'div.offer.ask',
+            h('div', dot, h('b', this.player(a.player).name), ' is offline. The computer decides for them shortly.'),
+            h(
+              'div.row',
+              h('button.small', { onclick: () => net.claimSeat(a.player) }, `Answer for ${this.player(a.player).name}`),
+              net.isHost ? h('button.small', { onclick: () => net.toComputer(a.player) }, 'Computer from now on') : null,
+            ),
+          );
+        }
         return h('div.offer', dot, h('b', this.player(a.player).name), ' ', what);
       });
       const pending = plan.allies.some((a) => a.side === null);
@@ -2028,6 +2154,7 @@ export class GameScreen {
         h('div.row', h('h2', { style: { margin: '0' } }, 'Menu'), h('span.spacer'), h('button.quiet', { onclick: close, 'aria-label': 'Close' }, icon('close'))),
         // Network games: the code, so a device that dropped out can rejoin.
         this.session.code ? h('p.muted', { style: { margin: '8px 0 0' } }, 'Game code: ', h('b.code-inline', this.session.code)) : null,
+        this.playersSection(close),
         h(
           'div',
           { style: { display: 'grid', gap: '10px', marginTop: '16px' } },

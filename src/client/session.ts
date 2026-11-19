@@ -1,9 +1,10 @@
 // A Session is what the game screen talks to. Local sessions run the engine
-// in the browser (pass and play on one device). Network sessions talk to the
-// LAN server, which runs the engine for every device at the table.
+// in the browser (pass and play on one device). Network sessions follow the
+// shared room of a game played across devices.
 
 import { GameHost } from '../engine/host.ts';
-import type { Link } from './peer.ts';
+import type { NetGame } from '../net/net.ts';
+import type { Room } from '../net/room.ts';
 import type { Action, GameState } from '../engine/types.ts';
 
 export interface Session {
@@ -123,55 +124,113 @@ export function setDeviceName(name: string) {
   }
 }
 
+export interface SeatInfo {
+  holder: string | null;
+  name: string;
+  online: boolean;
+  mine: boolean;
+  ai: boolean;
+}
+
+/** The game screen's view of a network game (see src/net/net.ts). */
 export class NetSession implements Session {
   kind = 'net' as const;
   onError?: (message: string) => void;
+  /** Seats, devices or hosting changed without a new game state. */
+  onRoom?: () => void;
   private listeners = new Set<(state: GameState) => void>();
-  private off: () => void;
+  private offs: (() => void)[];
+  private lastGame = '';
 
-  net: Link;
-  constructor(net: Link) {
+  net: NetGame;
+  constructor(net: NetGame) {
     this.net = net;
-    this.off = net.on((msg) => {
-      if ((msg.t === 'state' || msg.t === 'room') && net.room?.state) {
-        for (const fn of this.listeners) fn(net.room.state);
-      } else if (msg.t === 'error') {
-        this.onError?.(msg.message);
-      }
-    });
+    this.lastGame = JSON.stringify(net.room?.game);
+    this.offs = [
+      net.onChange(() => {
+        const g = net.room?.game;
+        if (!g) return;
+        const key = JSON.stringify(g);
+        if (key !== this.lastGame) {
+          this.lastGame = key;
+          for (const fn of this.listeners) fn(g);
+        } else this.onRoom?.();
+      }),
+      net.onError((m) => this.onError?.(m)),
+    ];
+  }
+
+  private get room(): Room {
+    return this.net.room!;
   }
 
   get state(): GameState {
-    return this.net.room!.state!;
+    return this.room.game!;
   }
 
-  get code(): string | undefined {
-    return this.net.room?.id;
+  get code(): string {
+    return this.net.code;
+  }
+
+  get me(): string {
+    return this.net.me;
   }
 
   controls(seat: number) {
-    const room = this.net.room;
-    if (!room) return false;
-    const p = room.lobby.players[seat];
-    // A lord handed to the computer during the game is no longer this device's.
-    if (room.state?.players[seat]?.ai) return false;
-    return !!p && !p.ai && room.seats[seat] === this.net.id;
+    const c = this.room.seats[seat];
+    return c?.kind === 'device' && c.id === this.net.me && !this.state.players[seat]?.ai;
+  }
+
+  /** Is this device the host? */
+  get isHost(): boolean {
+    return this.room.host === this.net.me;
+  }
+
+  /** Who plays each lord and whether their device is online. */
+  seatInfo(seat: number): SeatInfo {
+    const room = this.room;
+    const c = room.seats[seat];
+    if (!c || c.kind === 'computer') return { holder: null, name: 'Computer', online: true, mine: false, ai: true };
+    if (c.kind === 'open') return { holder: null, name: 'Nobody', online: false, mine: false, ai: false };
+    const d = room.devices.find((x) => x.id === c.id);
+    return { holder: c.id, name: d?.name ?? 'a device', online: !!d?.online, mine: c.id === this.net.me, ai: false };
+  }
+
+  /** Every device in the game, with which one hosts. */
+  devices(): { id: string; name: string; online: boolean; host: boolean; me: boolean }[] {
+    const room = this.room;
+    return room.devices.map((d) => ({ ...d, host: d.id === room.host, me: d.id === this.net.me }));
+  }
+
+  /** Play a lord on this device. */
+  claimSeat(seat: number) {
+    this.net.request({ t: 'seat', seat, to: 'me' });
+  }
+
+  /** Give a lord to the computer. */
+  toComputer(seat: number) {
+    this.net.request({ t: 'seat', seat, to: 'computer' });
+  }
+
+  kick(device: string) {
+    this.net.request({ t: 'kick', device });
+  }
+
+  handoff(device: string) {
+    this.net.request({ t: 'handoff', to: device });
   }
 
   whereIs(seat: number) {
-    const room = this.net.room;
-    if (!room) return '';
-    if (room.lobby.players[seat]?.ai || room.state?.players[seat]?.ai) return 'computer';
-    const holder = room.seats[seat];
-    if (!holder) return 'no device yet';
-    if (holder === this.net.id) return 'this device';
-    const c = room.clients.find((x) => x.id === holder);
-    return c ? c.name + (c.online ? '' : ' (offline)') : 'another device';
+    const i = this.seatInfo(seat);
+    if (i.ai) return 'computer';
+    if (!i.holder) return 'no device yet';
+    if (i.mine) return 'this device';
+    return i.name + (i.online ? '' : ', offline');
   }
 
   dispatch(action: Action) {
     if (!this.net.connected) return 'Not connected';
-    this.net.send({ t: 'action', action });
+    this.net.request({ t: 'action', action });
     return undefined;
   }
 
@@ -181,7 +240,7 @@ export class NetSession implements Session {
   }
 
   close() {
-    this.off();
+    for (const off of this.offs) off();
     this.listeners.clear();
   }
 }

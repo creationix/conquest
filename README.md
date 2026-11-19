@@ -38,20 +38,28 @@ defend themselves with 1 point plus 1 for each unclaimed neighbor.
 
 ## Playing on several devices
 
-The host's device runs the game (exactly like pass and play) and is the hub
-for the other devices. Devices find each other through the free public
+One device hosts: it keeps the official copy of the game and relays it to the
+others. Devices find each other through the free public
 [PeerJS](https://peerjs.com/) signaling service using the game code, then talk
 directly over WebRTC, or through a relay when a network blocks direct
 connections. Only the introductions go through the signaling service; game
 traffic is device to device. An internet connection is needed to connect.
 
-- Seats nobody claims are played on the host's device.
-- A device that reloads or drops off rejoins by itself; the code is also shown
-  in the in-game menu.
-- If the host leaves mid-game, the game is saved on the host's device:
-  **Continue hosted game** on its home screen resumes it with the same code.
-- The host's device should stay awake: if it sleeps, the game pauses for
-  everyone until it wakes.
+Devices come and go freely:
+
+- **Join any time** with the code (it is also in the in-game menu). A newcomer
+  can take over a computer lord or the lord of a device that dropped off.
+- **Never stuck:** if a device drops off, the game waits about 25 seconds and
+  then the computer plays that lord's turns until the device comes back (or
+  someone else takes the lord over).
+- **Leave** from the menu: your lords go to the computer.
+- The **host** can hand any lord to the computer, remove a device, or **make
+  another device the host**. If the host leaves, hosting moves to another
+  device; if the host's device vanishes, another device takes over by itself.
+- Every device keeps a copy of the game. If everyone leaves, any of them can
+  bring it back with **Continue network game** on the home screen, same code.
+
+See [docs/network.md](docs/network.md) for the design.
 
 To use your own signaling server instead of the public one, run a PeerJS
 server (`npm run signal` starts one on port 9000) and open the game with
@@ -71,7 +79,8 @@ npm run signal    # local PeerJS signaling server (port 9000), for testing
 | Path | What |
 | --- | --- |
 | `src/engine/` | Pure TypeScript rules shared by browser and server: `rules.ts` (state reducer), `map.ts` (grid maps, generator, seas), `ai.ts`, `host.ts` (applies actions, paces computer turns), `protocol.ts` |
-| `src/client/` | `peer.ts` (host and join by game code over WebRTC), `renderer.ts` (canvas map, cached board layer, animations, pinch/pan, portrait rotation), `game-ui.ts` (HUD and phase panels), `setup-ui.ts`, `session.ts` (local and network sessions), `audio.ts` + `music.ts` (Web Audio) |
+| `src/net/` | `room.ts` (the shared room of a network game and its permission rules, pure), `net.ts` (WebRTC runtime: hosting, joining, heartbeats, autopilot, handoff and failover) |
+| `src/client/` | `renderer.ts` (canvas map, cached board layer, animations, pinch/pan, portrait rotation), `game-ui.ts` (HUD and phase panels), `setup-ui.ts`, `session.ts` (local and network sessions), `audio.ts` + `music.ts` (Web Audio) |
 | `public/` | Manifest, service worker, icons, CNAME |
 | `legacy/` | The original 2010 prototype this grew from |
 
